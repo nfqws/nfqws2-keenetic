@@ -12,7 +12,7 @@ define Package/nfqws2-keenetic
   SECTION:=net
   CATEGORY:=Networking
   DEPENDS:=+iptables +iptables-mod-extra +iptables-mod-nfqueue +iptables-mod-filter +iptables-mod-ipopt +iptables-mod-conntrack-extra +ip6tables +ip6tables-mod-nat +ip6tables-extra
-  CONFLICTS:=+tpws-keenetic +nfqws-keenetic
+  CONFLICTS:=tpws-keenetic nfqws-keenetic
   PKGARCH:=all
   URL:=https://github.com/nfqws/nfqws2-keenetic
   VERSION:=$(PKG_VERSION)
