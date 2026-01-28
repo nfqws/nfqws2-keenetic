@@ -37,7 +37,7 @@ assignees: ''
 <ВСТАВИТЬ СЮДА>
 ```
 
-`iptables-save | grep 200`
+`iptables-save | grep 300`
 ```
 <ВСТАВИТЬ СЮДА>
 ```
