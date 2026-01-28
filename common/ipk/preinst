@@ -1,0 +1,41 @@
+#!/bin/sh
+
+CURRENT_VERSION=0  # This variable set by build
+CONFFILE="/opt/etc/nfqws2/nfqws2.conf"
+LISTFILE="/opt/etc/nfqws2/user.list"
+
+# Set `install` or `upgrade` for postinst script
+echo "$1" > "/opt/tmp/nfqws2_install_type"
+
+# Migrations
+NEED_MIGRATION_CONF=0
+NEED_MIGRATION_LIST=0
+
+INSTALLED_VERSION=$(grep -E '^CONFIG_VERSION=' "$CONFFILE" 2>/dev/null | grep -oE '[0-9]+$')
+
+if [ -z "$INSTALLED_VERSION" ]; then
+  NEED_MIGRATION_CONF=1
+elif [ "$INSTALLED_VERSION" -lt "$CURRENT_VERSION" ]; then
+  NEED_MIGRATION_CONF=1
+fi
+
+if [ $NEED_MIGRATION_CONF -ne 0 ]; then
+  if [ -f "$CONFFILE" ]; then
+    # Old config
+    mv "$CONFFILE" "$CONFFILE-old"
+    echo "Old configuration file was moved to $CONFFILE-old"
+  fi
+
+  # We need clean install
+  echo "install" > "/opt/tmp/nfqws2_install_type"
+fi
+
+if [ $NEED_MIGRATION_LIST -ne 0 ]; then
+  if [ -f "$LISTFILE" ]; then
+    # Old list
+    mv "$LISTFILE" "$LISTFILE-old"
+    echo "user.list file was moved to $LISTFILE-old"
+  fi
+fi
+
+exit 0

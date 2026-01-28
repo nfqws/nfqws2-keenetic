@@ -1,0 +1,31 @@
+#!/bin/sh
+
+[ "${PKG_UPGRADE}" = "1" ] && exit 0
+
+CONFDIR="/opt/etc/nfqws2"
+NFQWS_BIN="/opt/usr/bin/nfqws2"
+LISTLOG="/opt/var/log/nfqws2.log"
+
+remove_binary_func() {
+  rm -f "$NFQWS_BIN"
+}
+
+remove_all_files_func() {
+  rm -f $LISTLOG
+  echo -e "\nRemove lists and config? y/N"
+  read yn
+  case $yn in
+    [Yy]* )
+      rm -rf $CONFDIR
+      ;;
+  esac
+}
+
+# Remove binary file
+remove_binary_func
+
+# Remove all data
+remove_all_files_func
+
+echo "Uninstallation successful"
+exit 0

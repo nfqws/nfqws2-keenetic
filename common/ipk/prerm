@@ -1,0 +1,20 @@
+#!/bin/sh
+
+INIT_SCRIPT="/opt/etc/init.d/S51nfqws2"
+INIT_SCRIPT_OWRT="/opt/etc/init.d/nfqws2-keenetic"
+
+stop_func() {
+  if [ -f "$INIT_SCRIPT" ]; then
+    $INIT_SCRIPT stop
+  elif [ -f "$INIT_SCRIPT_OWRT" ]; then
+    $INIT_SCRIPT_OWRT stop
+  fi
+}
+
+
+# Stop entware service
+if [ -f "$INIT_SCRIPT" ]; then
+  stop_func
+fi
+
+exit 0
