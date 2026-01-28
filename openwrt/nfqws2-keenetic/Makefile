@@ -43,7 +43,8 @@ define Build/Prepare
 endef
 
 define Build/Compile
-		cd $(PKG_BUILD_DIR) && make openwrt && make web-openwrt
+# 		cd $(PKG_BUILD_DIR) && make openwrt && make web-openwrt
+		cd $(PKG_BUILD_DIR) && make openwrt
 endef
 
 define Package/nfqws2-keenetic/install
