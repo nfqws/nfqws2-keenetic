@@ -22,20 +22,6 @@ define Package/nfqws2-keenetic/description
   NFQWS2 service
 endef
 
-define Package/nfqws2-keenetic-web
-  TITLE:=nfqws2-keenetic-web
-  SECTION:=net
-  CATEGORY:=Networking
-  DEPENDS:=+nfqws2-keenetic +php8-cgi +php8-mod-session +lighttpd +lighttpd-mod-cgi +lighttpd-mod-setenv +lighttpd-mod-rewrite +lighttpd-mod-redirect
-  PKGARCH:=all
-  URL:=https://github.com/nfqws/nfqws2-keenetic
-  VERSION:=$(PKG_VERSION)
-endef
-
-define Package/nfqws2-keenetic-web/description
-  NFQWS2 service web interface
-endef
-
 define Build/Prepare
 		$(Build/Prepare/Default)
 		cp -r ../../* $(PKG_BUILD_DIR)
@@ -43,7 +29,6 @@ define Build/Prepare
 endef
 
 define Build/Compile
-# 		cd $(PKG_BUILD_DIR) && make openwrt && make web-openwrt
 		cd $(PKG_BUILD_DIR) && make openwrt
 endef
 
@@ -68,16 +53,6 @@ define Package/nfqws2-keenetic/postrm
 $(file <$(PKG_BUILD_DIR)/out/openwrt/control/postrm)
 endef
 
-define Package/nfqws2-keenetic-web/install
-		$(INSTALL_DIR) $(1)/{etc,www}
-		$(CP) $(PKG_BUILD_DIR)/out/web-openwrt/data/{etc,www} $(1)/
-endef
-
-define Package/nfqws2-keenetic-web/postinst
-$(file <$(PKG_BUILD_DIR)/out/web-openwrt/control/postinst)
-endef
-
 
 $(eval $(call BuildPackage,nfqws2-keenetic))
-# $(eval $(call BuildPackage,nfqws2-keenetic-web))
 
