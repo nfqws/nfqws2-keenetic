@@ -194,7 +194,7 @@ kernel_modules() {
 }
 
 _startup_args() {
-  local args="--user=$USER --qnum=$NFQUEUE_NUM"
+  local args="--user=$USER --qnum=$NFQUEUE_NUM $NFQWS_BASE_ARGS"
 
   # Fix bind multiple interfaces
   local iface_count=$(echo $ISP_INTERFACE | wc -w)

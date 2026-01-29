@@ -2,7 +2,7 @@
 
 CURRENT_VERSION=0  # This variable set by build
 CONFFILE="/opt/etc/nfqws2/nfqws2.conf"
-LISTFILE="/opt/etc/nfqws2/user.list"
+LISTFILE="/opt/etc/nfqws2/lists/user.list"
 
 # Set `install` or `upgrade` for postinst script
 echo "$1" > "/opt/tmp/nfqws2_install_type"
