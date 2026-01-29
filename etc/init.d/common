@@ -91,27 +91,30 @@ reload_service() {
 }
 
 validate_config() {
-#  TODO:
-#  if [[ "$NFQWS_ARGS" =~ "--new" ]]; then
-#    echo "Using --new in NFQWS_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"
-#    return 1
-#  fi
-#  if [[ "$NFQWS_ARGS_QUIC" =~ "--new" ]]; then
-#    echo "Using --new in NFQWS_ARGS_QUIC is not allowed. Use NFQWS_ARGS_CUSTOM instead"
-#    return 1
-#  fi
-#  if [[ "$NFQWS_ARGS_UDP" =~ "--new" ]]; then
-#    echo "Using --new in NFQWS_ARGS_UDP is not allowed. Use NFQWS_ARGS_CUSTOM instead"
-#    return 1
-#  fi
-#  if [[ "$NFQWS_EXTRA_ARGS" =~ "--new" ]]; then
-#    echo "Using --new in NFQWS_EXTRA_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"
-#    return 1
-#  fi
-#  if [[ "$NFQWS_ARGS_IPSET" =~ "--new" ]]; then
-#    echo "Using --new in NFQWS_ARGS_IPSET is not allowed. Use NFQWS_ARGS_CUSTOM instead"
-#    return 1
-#  fi
+  if [[ "$NFQWS_BASE_ARGS" =~ "--new" ]]; then
+    echo "Using --new in NFQWS_BASE_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    return 1
+  fi
+  if [[ "$NFQWS_ARGS" =~ "--new" ]]; then
+    echo "Using --new in NFQWS_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    return 1
+  fi
+  if [[ "$NFQWS_ARGS_QUIC" =~ "--new" ]]; then
+    echo "Using --new in NFQWS_ARGS_QUIC is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    return 1
+  fi
+  if [[ "$NFQWS_ARGS_UDP" =~ "--new" ]]; then
+    echo "Using --new in NFQWS_ARGS_UDP is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    return 1
+  fi
+  if [[ "$NFQWS_EXTRA_ARGS" =~ "--new" ]]; then
+    echo "Using --new in NFQWS_EXTRA_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    return 1
+  fi
+  if [[ "$NFQWS_ARGS_IPSET" =~ "--new" ]]; then
+    echo "Using --new in NFQWS_ARGS_IPSET is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    return 1
+  fi
 }
 
 create_running_config() {
