@@ -90,9 +90,6 @@ jobs:
     - name: Build entware packages
       run: make entware
 
-#    - name: Build entware web
-#      run: make web-entware
-
     - name: Upload files
       uses: actions/upload-artifact@v4
       with:
@@ -266,53 +263,22 @@ jobs:
         asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_all_openwrt.apk
         asset_content_type: application/octet-stream
 
-#    - name: Upload Release web-entware
-#      uses: actions/upload-release-asset@v1
-#      env:
-#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#      with:
-#        upload_url: ${{ steps.create_release.outputs.upload_url }}
-#        asset_path: ./out/entware/nfqws2-keenetic-web_${{ steps.version.outputs.content }}_all_entware.ipk
-#        asset_name: nfqws2-keenetic-web_${{ steps.version.outputs.content }}_all_entware.ipk
-#        asset_content_type: application/octet-stream
-
-#    - name: Upload Release web-openwrt ipk
-#      uses: actions/upload-release-asset@v1
-#      env:
-#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#      with:
-#        upload_url: ${{ steps.create_release.outputs.upload_url }}
-#        asset_path: ./out/openwrt/nfqws2-keenetic-web_${{ steps.version.outputs.content }}_all.ipk
-#        asset_name: nfqws2-keenetic-web_${{ steps.version.outputs.content }}_all_openwrt.ipk
-#        asset_content_type: application/octet-stream
-
-#    - name: Upload Release web-openwrt apk
-#      uses: actions/upload-release-asset@v1
-#      env:
-#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#      with:
-#        upload_url: ${{ steps.create_release.outputs.upload_url }}
-#        asset_path: ./out/openwrt/nfqws2-keenetic-web-${{ steps.version.outputs.content }}.apk
-#        asset_name: nfqws2-keenetic-web_${{ steps.version.outputs.content }}_all_openwrt.apk
-#        asset_content_type: application/octet-stream
-
     - name: Summary
       run: |
         echo "Release v${{ steps.version.outputs.content }} created" >> $GITHUB_STEP_SUMMARY
 
-  # TODO: deploy only when release published
-#  deploy-repository:
-#    runs-on: ubuntu-22.04
-#    needs: [build-repository]
-#
-#    steps:
-#    - name: Setup Pages
-#      uses: actions/configure-pages@v5
-#
-#    - name: Deploy to GitHub Pages
-#      id: deployment
-#      uses: actions/deploy-pages@v4
-#
-#    - name: Summary
-#      run: |
-#        echo "Repository deployed" >> $GITHUB_STEP_SUMMARY
+  deploy-repository:
+    runs-on: ubuntu-22.04
+    needs: [build-repository]
+
+    steps:
+    - name: Setup Pages
+      uses: actions/configure-pages@v5
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+
+    - name: Summary
+      run: |
+        echo "Repository deployed" >> $GITHUB_STEP_SUMMARY
