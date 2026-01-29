@@ -4,11 +4,15 @@ POLICY_MARK=
 MARK_EXCLUDE="0x20000000/0x20000000"
 MARK_PROCESSED="0x40000000/0x40000000"
 
+IPT_GROUP_POST="nfqws_post"
+IPT_GROUP_PRE="nfqws_pre"
+
 source "$CONFFILE"
 if [ -f "$CONFFILE.run" ]; then
   source "$CONFFILE.run"
 fi
 
+# TODO:
 _RULE_EXCLUDE_POLICY() {
   local PROTO=$1 # tcp or udp
   local PORTS=$2 # 80,443
@@ -233,75 +237,62 @@ _startup_args() {
   echo "$args"
 }
 
-_firewall() {
+_firewall_start() {
   local CMD=$1 # iptables or ip6tables
-  local ACTION=$2 # -I, -A, -D
-  shift 2
-  local RULE="$@"
 
-  $CMD -C $RULE 2>/dev/null
-  exists=$? # 0 = true
+  MAX_PKT_IN=15
+  MAX_PKT_OUT=15
 
-  if [ "$ACTION" == "-A" ] || [ "$ACTION" == "-I" ]; then
-    if [ $exists -ne 0 ]; then
-      $CMD -w $ACTION $RULE
-    fi
-  elif [ "$ACTION" == "-D" ] && [ $exists -eq 0 ]; then
-    $CMD -w $ACTION $RULE
-  fi
-}
-
-_firewall_start_stop() {
-  local CMD=$1 # iptables or ip6tables
-  local ACTION=$2 # -I, -A, -D
+  JNFQ="-j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass"
+  CHECKMARK="-m mark ! --mark $MARK_PROCESSED"
+  CB_ORIG="-m connbytes --connbytes-dir=original --connbytes-mode=packets"
+  CB_REPLY="-m connbytes --connbytes-dir=reply --connbytes-mode=packets"
 
   for IFACE in $ISP_INTERFACE; do
-    if [ -n "$UDP_PORTS" ]; then
-      if [ -n "$POLICY_MARK" ]; then
-        _firewall $CMD $ACTION "$(_RULE_EXCLUDE_POLICY udp $UDP_PORTS)"
-      fi
-      _firewall $CMD $ACTION "$(_RULE_EXCLUDE_PROCESSED udp $UDP_PORTS)"
-      _firewall $CMD $ACTION "$(_RULE_NFQWS udp $UDP_PORTS)"
-      if [ "$CMD" == "iptables" ]; then
-        _firewall $CMD $ACTION "$(_RULE_MASQ)"
-      fi
-    fi
-
-    if [ -n "$TCP_PORTS" ]; then
-      if [ -n "$POLICY_MARK" ]; then
-        _firewall $CMD $ACTION "$(_RULE_EXCLUDE_POLICY tcp $TCP_PORTS)"
-      fi
-      _firewall $CMD $ACTION "$(_RULE_EXCLUDE_PROCESSED tcp $TCP_PORTS)"
-      _firewall $CMD $ACTION "$(_RULE_NFQWS tcp $TCP_PORTS)"
-    fi
+    $CMD -t mangle -N $IPT_GROUP_POST 2>/dev/null
+    $CMD -t mangle -F $IPT_GROUP_POST
+    $CMD -t mangle -C POSTROUTING -j $IPT_GROUP_POST 2>/dev/null || $CMD -t mangle -A POSTROUTING -j $IPT_GROUP_POST
+    $CMD -t mangle -N $IPT_GROUP_PRE 2>/dev/null
+    $CMD -t mangle -F $IPT_GROUP_PRE
+    $CMD -t mangle -C PREROUTING -j $IPT_GROUP_PRE 2>/dev/null || $CMD -t mangle -A PREROUTING -j $IPT_GROUP_PRE
+    $CMD -t mangle -I $IPT_GROUP_POST -o $IFACE $CHECKMARK -p udp -m multiport --dports $UDP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
+    $CMD -t mangle -I $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
+    $CMD -t mangle -I $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags fin fin $JNFQ
+    $CMD -t mangle -I $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags rst rst $JNFQ
+    $CMD -t mangle -I $IPT_GROUP_PRE -i $IFACE -p udp -m multiport --sports $UDP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
+    $CMD -t mangle -I $IPT_GROUP_PRE -i $IFACE -p tcp -m multiport --sports $TCP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
+    $CMD -t mangle -I $IPT_GROUP_PRE -i $IFACE -p tcp -m multiport --sports $TCP_PORTS --tcp-flags syn,ack syn,ack $JNFQ
+    $CMD -t mangle -I $IPT_GROUP_PRE -i $IFACE -p tcp -m multiport --sports $TCP_PORTS --tcp-flags fin fin $JNFQ
+    $CMD -t mangle -I $IPT_GROUP_PRE -i $IFACE -p tcp -m multiport --sports $TCP_PORTS --tcp-flags rst rst $JNFQ
   done
 }
 
-_firewall_start_stop_v4() {
-  local ACTION=$1 # -I, -A, -D
-  _firewall_start_stop iptables $ACTION
+_firewall_stop() {
+  local CMD=$1 # iptables or ip6tables
+
+	$CMD -t mangle -D POSTROUTING -j $IPT_GROUP_POST
+	$CMD -t mangle -D PREROUTING -j $IPT_GROUP_PRE
+	$CMD -t mangle -F $IPT_GROUP_POST
+	$CMD -t mangle -X $IPT_GROUP_POST
+	$CMD -t mangle -F $IPT_GROUP_PRE
+	$CMD -t mangle -X $IPT_GROUP_PRE
 }
 
-_firewall_start_stop_v6() {
+firewall_iptables() {
+  _firewall_start iptables
+}
+
+firewall_ip6tables() {
   if [ -z "$IPV6_ENABLED" ] || [ "$IPV6_ENABLED" -eq "0" ]; then
     return
   fi
 
-  local ACTION=$1 # -I, -A, -D
-  _firewall_start_stop ip6tables $ACTION
-}
-
-firewall_iptables() {
-  _firewall_start_stop_v4 -A
-}
-
-firewall_ip6tables() {
-  _firewall_start_stop_v6 -A
+  _firewall_start ip6tables
 }
 
 firewall_stop() {
-  _firewall_start_stop_v4 -D
-  _firewall_start_stop_v6 -D
+  _firewall_stop iptables
+  _firewall_stop ip6tables
 }
 
 system_config() {
