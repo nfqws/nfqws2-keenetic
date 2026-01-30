@@ -295,7 +295,10 @@ firewall_ip6tables() {
 
 firewall_stop() {
   _firewall_stop iptables
-  _firewall_stop ip6tables
+
+  if [ -n "$IPV6_ENABLED" ] && [ "$IPV6_ENABLED" -ne "0" ]; then
+    _firewall_stop ip6tables
+  fi
 }
 
 system_config() {
