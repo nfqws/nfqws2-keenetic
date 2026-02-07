@@ -12,7 +12,7 @@ if [ -f "$CONFFILE.run" ]; then
   source "$CONFFILE.run"
 fi
 
-# TODO:
+# TODO: политики доступа
 _RULE_EXCLUDE_POLICY() {
   local PROTO=$1 # tcp or udp
   local PORTS=$2 # 80,443
@@ -251,13 +251,14 @@ _firewall_start() {
   CB_ORIG="-m connbytes --connbytes-dir=original --connbytes-mode=packets"
   CB_REPLY="-m connbytes --connbytes-dir=reply --connbytes-mode=packets"
 
+  $CMD -t mangle -N $IPT_GROUP_POST 2>/dev/null
+  $CMD -t mangle -F $IPT_GROUP_POST
+  $CMD -t mangle -C POSTROUTING -j $IPT_GROUP_POST 2>/dev/null || $CMD -t mangle -A POSTROUTING -j $IPT_GROUP_POST
+  $CMD -t mangle -N $IPT_GROUP_PRE 2>/dev/null
+  $CMD -t mangle -F $IPT_GROUP_PRE
+  $CMD -t mangle -C PREROUTING -j $IPT_GROUP_PRE 2>/dev/null || $CMD -t mangle -A PREROUTING -j $IPT_GROUP_PRE
+
   for IFACE in $ISP_INTERFACE; do
-    $CMD -t mangle -N $IPT_GROUP_POST 2>/dev/null
-    $CMD -t mangle -F $IPT_GROUP_POST
-    $CMD -t mangle -C POSTROUTING -j $IPT_GROUP_POST 2>/dev/null || $CMD -t mangle -A POSTROUTING -j $IPT_GROUP_POST
-    $CMD -t mangle -N $IPT_GROUP_PRE 2>/dev/null
-    $CMD -t mangle -F $IPT_GROUP_PRE
-    $CMD -t mangle -C PREROUTING -j $IPT_GROUP_PRE 2>/dev/null || $CMD -t mangle -A PREROUTING -j $IPT_GROUP_PRE
     $CMD -t mangle -I $IPT_GROUP_POST -o $IFACE $CHECKMARK -p udp -m multiport --dports $UDP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
     $CMD -t mangle -I $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
     $CMD -t mangle -I $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags fin fin $JNFQ
