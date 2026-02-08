@@ -303,7 +303,7 @@ NFQWS_EXTRA_ARGS="..."
 NFQWS_ARGS_IPSET="..."
 
 # Дополнительные стратегии
-NFQWS_ARGS_CUSTOM=""
+NFQWS_ARGS_CUSTOM="..."
 
 # Обрабатывать ли IPv6 соединения
 IPV6_ENABLED=0|1
@@ -325,6 +325,8 @@ POLICY_NAME="nfqws"
 # 0 - обрабатывается трафик только для устройств в политике
 # 1 - обрабатывается трафик для всех устройств, кроме добавленных в политику
 POLICY_EXCLUDE=0|1
+# Файл для записи дебаг-лога
+LOG_DEBUG_PATH="@/opt/var/log/nfqws2-debug.log"
 
 # Логирование в Syslog
 LOG_LEVEL=0|1
