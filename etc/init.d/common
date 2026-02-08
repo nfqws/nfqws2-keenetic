@@ -195,7 +195,11 @@ _startup_args() {
 
   # Logging
   if [ "$LOG_LEVEL" -eq "1" ]; then
-    args="--debug=syslog $args"
+    if [ -n "$LOG_DEBUG_PATH" ]; then
+      args="--debug=$LOG_DEBUG_PATH $args"
+    else
+      args="--debug=syslog $args"
+    fi
   fi
 
   # Custom args
