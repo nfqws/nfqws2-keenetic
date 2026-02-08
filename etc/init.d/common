@@ -159,6 +159,26 @@ kernel_modules() {
       echo "Cannot find xt_NFQUEUE.ko module"
     fi
   fi
+
+  if [ -z "$(lsmod 2>/dev/null | grep "xt_CONNMARK ")" ] && [ -z "$(lsmod 2>/dev/null | grep "xt_connmark ")" ]; then
+    connmark_mod_path=$(find "/lib/modules/$KERNEL" -name "xt_CONNMARK.ko*" -o -name "xt_connmark.ko*" | head -n 1)
+
+    if [ -n "$connmark_mod_path" ]; then
+      insmod "$connmark_mod_path" &> /dev/null
+      echo "xt_connmark.ko module loaded"
+    else
+      echo "Cannot find xt_connmark.ko module"
+    fi
+  fi
+
+  if [ -z "$(lsmod 2>/dev/null | grep "nf_conntrack ")" ]; then
+    conntrack_mod_path=$(find "/lib/modules/$KERNEL" -name "nf_conntrack.ko*" | head -n 1)
+
+    if [ -n "$conntrack_mod_path" ]; then
+      insmod "$conntrack_mod_path" &> /dev/null
+      echo "nf_conntrack.ko loaded"
+    fi
+  fi
 }
 
 _startup_args() {
@@ -212,24 +232,18 @@ _firewall_start() {
   MAX_PKT_OUT=15
 
   JNFQ="-j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass"
-  CHECKMARK="-m mark ! --mark $MARK_EXCLUDE"
+  CONN_CHECK="-m connmark ! --mark $MARK_EXCLUDE"
+  CONN_SET_EXCLUDE="-j CONNMARK --set-xmark $MARK_EXCLUDE"
+
   CB_ORIG="-m connbytes --connbytes-dir=original --connbytes-mode=packets"
   CB_REPLY="-m connbytes --connbytes-dir=reply --connbytes-mode=packets"
 
-  # We only need to persist/restore our own high-bit flags for reply packets.
-  # Do NOT persist policy bits into connmark, because Keenetic may overwrite packet marks in PREROUTING (mask /0xffffffff)
-  # and restoring policy bits on inbound packets can interfere with other subsystems.
-  local CONNMARK_MASK="0x60000000"  # 0x20000000 (exclude) + 0x40000000 (processed)
-
-  # Build policy exclude rule
-  # - if POLICY_EXCLUDE=1 -> exclude traffic FROM policy
-  # - else -> exclude traffic NOT from policy (so only policy traffic is processed)
   local POLICY_EXC_RULE=""
   if [ -n "$POLICY_MARK" ]; then
     if [ -n "$POLICY_EXCLUDE" ] && [ "$POLICY_EXCLUDE" -ne "0" ]; then
-      POLICY_EXC_RULE="-m mark --mark $POLICY_MARK -j MARK --set-xmark $MARK_EXCLUDE"
+      POLICY_EXC_RULE="-m mark --mark $POLICY_MARK $CONN_SET_EXCLUDE"
     else
-      POLICY_EXC_RULE="-m mark ! --mark $POLICY_MARK -j MARK --set-xmark $MARK_EXCLUDE"
+      POLICY_EXC_RULE="-m mark ! --mark $POLICY_MARK $CONN_SET_EXCLUDE"
     fi
   fi
 
@@ -248,33 +262,33 @@ _firewall_start() {
       $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $POLICY_EXC_RULE
     fi
 
-    # 2) Exclude already processed packets
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE -m mark --mark $MARK_PROCESSED -j MARK --set-xmark $MARK_EXCLUDE
+    # 2) Exclude already processed packets by setting CONNMARK exclude bit (no packet mark modification)
+    # If nfqws already marked the packet as processed, exclude the whole connection from further NFQUEUE processing.
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE -m mark --mark $MARK_PROCESSED $CONN_SET_EXCLUDE
 
-    # Save only our exclude/processed bits into connmark AFTER we may have set MARK_EXCLUDE in this chain.
-    # 3) Persist relevant bits into connmark so inbound reply packets get the same exclude/processed/policy bits
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE -j CONNMARK --save-mark --mask $CONNMARK_MASK
+    # If connection is excluded, stop processing in this chain immediately.
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE -m connmark --mark $MARK_EXCLUDE -j RETURN
 
-    # 4) NFQUEUE rules (process only packets NOT excluded)
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CHECKMARK -p udp -m multiport --dports $UDP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags fin fin $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags rst rst $JNFQ
+    # 3) NFQUEUE rules (process only packets NOT excluded via CONNMARK)
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p udp -m multiport --dports $UDP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags fin fin $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags rst rst $JNFQ
 
     # --- PREROUTING (incoming / replies) ---
-    # Restore marks only for reply packets coming from WAN. Do NOT restore for LAN-originated packets,
-    # otherwise we may wipe POLICY_MARK that was just set earlier in PREROUTING.
-    $CMD -w -t mangle -I $IPT_GROUP_PRE 1 -i $IFACE -m conntrack --ctstate ESTABLISHED,RELATED -j CONNMARK --restore-mark --mask $CONNMARK_MASK
+    # Exclude already processed packets (incoming / replies) by setting CONNMARK exclude bit
+    # If nfqws marked an inbound packet as processed, exclude the whole connection from further NFQUEUE processing.
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE -m mark --mark $MARK_PROCESSED $CONN_SET_EXCLUDE
 
-    # Exclude already processed packets (incoming / replies)
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE -m mark --mark $MARK_PROCESSED -j MARK --set-xmark $MARK_EXCLUDE
+    # If connection is excluded, stop processing in this chain immediately.
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE -m connmark --mark $MARK_EXCLUDE -j RETURN
 
-    # Mark is restored from connmark for WAN reply packets above, so we can filter by MARK_EXCLUDE here as well.
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CHECKMARK -p udp -m multiport --sports $UDP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CHECKMARK -p tcp -m multiport --sports $TCP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CHECKMARK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags syn,ack syn,ack $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CHECKMARK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags fin fin $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CHECKMARK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags rst rst $JNFQ
+    # Exclude decision is stored in CONNMARK, so replies for excluded connections will be skipped too.
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p udp -m multiport --sports $UDP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags syn,ack syn,ack $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags fin fin $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags rst rst $JNFQ
   done
 }
 
