@@ -2,8 +2,9 @@
 POLICY_MARK=
 # Marks for excliude packets
 MARK_EXCLUDE="0x20000000/0x20000000"
+# nfqws2 processed mark
 MARK_PROCESSED="0x40000000/0x40000000"
-
+# iptables groups
 IPT_GROUP_POST="nfqws_post"
 IPT_GROUP_PRE="nfqws_pre"
 
@@ -11,42 +12,6 @@ source "$CONFFILE"
 if [ -f "$CONFFILE.run" ]; then
   source "$CONFFILE.run"
 fi
-
-# TODO: политики доступа
-_RULE_EXCLUDE_POLICY() {
-  local PROTO=$1 # tcp or udp
-  local PORTS=$2 # 80,443
-
-  local START="POSTROUTING -o $IFACE -t mangle -p $PROTO -m multiport --dports $PORTS -m mark"
-  local END="--mark $POLICY_MARK -j MARK --set-xmark $MARK_EXCLUDE"
-
-  # Set exclude mark for policy
-  if [ -n "$POLICY_EXCLUDE" ] && [ "$POLICY_EXCLUDE" -ne "0" ]; then
-    echo "$START $END"
-  else
-    echo "$START ! $END"
-  fi
-}
-
-_RULE_EXCLUDE_PROCESSED() {
-  local PROTO=$1 # tcp or udp
-  local PORTS=$2 # 80,443
-
-  # Set exclude mark for already processed packets
-  echo "POSTROUTING -o $IFACE -t mangle -p $PROTO -m multiport --dports $PORTS -m mark --mark $MARK_PROCESSED -j MARK --set-xmark $MARK_EXCLUDE"
-}
-
-_RULE_NFQWS() {
-  local PROTO=$1 # tcp or udp
-  local PORTS=$2 # 80,443
-
-  # Main NFQUEUE rule
-  echo "POSTROUTING -o $IFACE -t mangle -p $PROTO -m multiport --dports $PORTS -m connbytes --connbytes-dir=original --connbytes-mode=packets --connbytes 1:12 -m mark ! --mark $MARK_EXCLUDE -j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass"
-}
-
-_RULE_MASQ() {
-  echo "POSTROUTING -o $IFACE -t nat -p udp -m mark --mark $MARK_PROCESSED -j MASQUERADE"
-}
 
 is_running() {
   PID_RUNNING=$(pgrep -nf "$NFQWS_BIN" 2>/dev/null)
@@ -149,7 +114,7 @@ kernel_modules() {
   KERNEL=$(uname -r)
 
   # Try to load all modules (OpenWRT or Padavan)
-  modprobe -a -q nfnetlink_queue xt_multiport xt_connbytes xt_NFQUEUE &> /dev/null
+  modprobe -a -q nfnetlink_queue xt_multiport xt_connbytes xt_NFQUEUE xt_CONNMARK xt_connmark &> /dev/null
 
   if [ -z "$(lsmod 2>/dev/null | grep "nfnetlink_queue ")" ]; then
     nfnetlink_mod_path=$(find "/lib/modules/$KERNEL" -name "nfnetlink_queue.ko*")
@@ -247,39 +212,88 @@ _firewall_start() {
   MAX_PKT_OUT=15
 
   JNFQ="-j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass"
-  CHECKMARK="-m mark ! --mark $MARK_PROCESSED"
+  CHECKMARK="-m mark ! --mark $MARK_EXCLUDE"
   CB_ORIG="-m connbytes --connbytes-dir=original --connbytes-mode=packets"
   CB_REPLY="-m connbytes --connbytes-dir=reply --connbytes-mode=packets"
+
+  # We only need to persist/restore our own high-bit flags for reply packets.
+  # Do NOT persist policy bits into connmark, because Keenetic may overwrite packet marks in PREROUTING (mask /0xffffffff)
+  # and restoring policy bits on inbound packets can interfere with other subsystems.
+  local CONNMARK_MASK="0x60000000"  # 0x20000000 (exclude) + 0x40000000 (processed)
+
+  # Build policy exclude rule
+  # - if POLICY_EXCLUDE=1 -> exclude traffic FROM policy
+  # - else -> exclude traffic NOT from policy (so only policy traffic is processed)
+  local POLICY_EXC_RULE=""
+  if [ -n "$POLICY_MARK" ]; then
+    if [ -n "$POLICY_EXCLUDE" ] && [ "$POLICY_EXCLUDE" -ne "0" ]; then
+      POLICY_EXC_RULE="-m mark --mark $POLICY_MARK -j MARK --set-xmark $MARK_EXCLUDE"
+    else
+      POLICY_EXC_RULE="-m mark ! --mark $POLICY_MARK -j MARK --set-xmark $MARK_EXCLUDE"
+    fi
+  fi
 
   $CMD -w -t mangle -N $IPT_GROUP_POST 2>/dev/null
   $CMD -w -t mangle -F $IPT_GROUP_POST
   $CMD -w -t mangle -C POSTROUTING -j $IPT_GROUP_POST 2>/dev/null || $CMD -w -t mangle -A POSTROUTING -j $IPT_GROUP_POST
+
   $CMD -w -t mangle -N $IPT_GROUP_PRE 2>/dev/null
   $CMD -w -t mangle -F $IPT_GROUP_PRE
   $CMD -w -t mangle -C PREROUTING -j $IPT_GROUP_PRE 2>/dev/null || $CMD -w -t mangle -A PREROUTING -j $IPT_GROUP_PRE
 
   for IFACE in $ISP_INTERFACE; do
-    $CMD -w -t mangle -I $IPT_GROUP_POST -o $IFACE $CHECKMARK -p udp -m multiport --dports $UDP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
-    $CMD -w -t mangle -I $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
-    $CMD -w -t mangle -I $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags fin fin $JNFQ
-    $CMD -w -t mangle -I $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags rst rst $JNFQ
-    $CMD -w -t mangle -I $IPT_GROUP_PRE -i $IFACE -p udp -m multiport --sports $UDP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
-    $CMD -w -t mangle -I $IPT_GROUP_PRE -i $IFACE -p tcp -m multiport --sports $TCP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
-    $CMD -w -t mangle -I $IPT_GROUP_PRE -i $IFACE -p tcp -m multiport --sports $TCP_PORTS --tcp-flags syn,ack syn,ack $JNFQ
-    $CMD -w -t mangle -I $IPT_GROUP_PRE -i $IFACE -p tcp -m multiport --sports $TCP_PORTS --tcp-flags fin fin $JNFQ
-    $CMD -w -t mangle -I $IPT_GROUP_PRE -i $IFACE -p tcp -m multiport --sports $TCP_PORTS --tcp-flags rst rst $JNFQ
+    # --- POSTROUTING (outgoing) ---
+    # 1) Apply policy-based exclusion
+    if [ -n "$POLICY_EXC_RULE" ]; then
+      $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $POLICY_EXC_RULE
+    fi
+
+    # 2) Exclude already processed packets
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE -m mark --mark $MARK_PROCESSED -j MARK --set-xmark $MARK_EXCLUDE
+
+    # Save only our exclude/processed bits into connmark AFTER we may have set MARK_EXCLUDE in this chain.
+    # 3) Persist relevant bits into connmark so inbound reply packets get the same exclude/processed/policy bits
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE -j CONNMARK --save-mark --mask $CONNMARK_MASK
+
+    # 4) NFQUEUE rules (process only packets NOT excluded)
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CHECKMARK -p udp -m multiport --dports $UDP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags fin fin $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CHECKMARK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags rst rst $JNFQ
+
+    # --- PREROUTING (incoming / replies) ---
+    # Restore marks only for reply packets coming from WAN. Do NOT restore for LAN-originated packets,
+    # otherwise we may wipe POLICY_MARK that was just set earlier in PREROUTING.
+    $CMD -w -t mangle -I $IPT_GROUP_PRE 1 -i $IFACE -m conntrack --ctstate ESTABLISHED,RELATED -j CONNMARK --restore-mark --mask $CONNMARK_MASK
+
+    # Exclude already processed packets (incoming / replies)
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE -m mark --mark $MARK_PROCESSED -j MARK --set-xmark $MARK_EXCLUDE
+
+    # Mark is restored from connmark for WAN reply packets above, so we can filter by MARK_EXCLUDE here as well.
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CHECKMARK -p udp -m multiport --sports $UDP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CHECKMARK -p tcp -m multiport --sports $TCP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CHECKMARK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags syn,ack syn,ack $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CHECKMARK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags fin fin $JNFQ
+    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CHECKMARK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags rst rst $JNFQ
   done
 }
 
 _firewall_stop() {
   local CMD=$1 # iptables or ip6tables
 
-  $CMD -w -t mangle -D POSTROUTING -j $IPT_GROUP_POST
-  $CMD -w -t mangle -D PREROUTING -j $IPT_GROUP_PRE
-  $CMD -w -t mangle -F $IPT_GROUP_POST
-  $CMD -w -t mangle -X $IPT_GROUP_POST
-  $CMD -w -t mangle -F $IPT_GROUP_PRE
-  $CMD -w -t mangle -X $IPT_GROUP_PRE
+  # Remove all possible jumps (in case of duplicates) and ignore errors if absent.
+  while $CMD -w -t mangle -C POSTROUTING -j $IPT_GROUP_POST 2>/dev/null; do
+    $CMD -w -t mangle -D POSTROUTING -j $IPT_GROUP_POST 2>/dev/null || break
+  done
+  while $CMD -w -t mangle -C PREROUTING -j $IPT_GROUP_PRE 2>/dev/null; do
+    $CMD -w -t mangle -D PREROUTING -j $IPT_GROUP_PRE 2>/dev/null || break
+  done
+
+  # Flush and delete chains if they exist.
+  $CMD -w -t mangle -F $IPT_GROUP_POST 2>/dev/null
+  $CMD -w -t mangle -X $IPT_GROUP_POST 2>/dev/null
+  $CMD -w -t mangle -F $IPT_GROUP_PRE 2>/dev/null
+  $CMD -w -t mangle -X $IPT_GROUP_PRE 2>/dev/null
 }
 
 firewall_iptables() {
