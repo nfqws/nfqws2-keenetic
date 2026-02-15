@@ -249,6 +249,13 @@ _firewall_rules() {
   echo ":$IPT_CHAIN_POST - [0:0]"
   echo ":$IPT_CHAIN_PRE - [0:0]"
 
+  if ! $CMD -w -t mangle -C POSTROUTING -j $IPT_CHAIN_POST &>/dev/null; then
+    echo "-A POSTROUTING -j $IPT_CHAIN_POST"
+  fi
+  if ! $CMD -w -t mangle -C PREROUTING -j $IPT_CHAIN_PRE &>/dev/null; then
+    echo "-A PREROUTING -j $IPT_CHAIN_PRE"
+  fi
+
   for IFACE in $ISP_INTERFACE; do
     # --- POSTROUTING (outgoing) ---
     # 1) Apply policy-based exclusion
@@ -290,6 +297,10 @@ _firewall_rules() {
     echo "*nat"
     echo ":$IPT_CHAIN_NAT - [0:0]"
 
+    if ! $CMD -w -t nat -C POSTROUTING -j $IPT_CHAIN_NAT &>/dev/null; then
+      echo "-A POSTROUTING -j $IPT_CHAIN_NAT"
+    fi
+
     for IFACE in $ISP_INTERFACE; do
       # 4) NAT MASQUERADE
       echo "-A $IPT_CHAIN_NAT -o $IFACE -m mark --mark $MARK_PROCESSED -p udp -j MASQUERADE"
@@ -302,12 +313,6 @@ _firewall_start() {
   local CMD=$1 # iptables or ip6tables
 
   _firewall_rules $CMD | $CMD-restore -n
-  $CMD -w -t mangle -C POSTROUTING -j $IPT_CHAIN_POST 2>/dev/null || $CMD -w -t mangle -A POSTROUTING -j $IPT_CHAIN_POST
-  $CMD -w -t mangle -C PREROUTING -j $IPT_CHAIN_PRE 2>/dev/null || $CMD -w -t mangle -A PREROUTING -j $IPT_CHAIN_PRE
-
-  if [ "$CMD" == "iptables" ]; then
-    $CMD -w -t nat -C POSTROUTING -j $IPT_CHAIN_NAT 2>/dev/null || $CMD -w -t nat -A POSTROUTING -j $IPT_CHAIN_NAT
-  fi
 }
 
 _firewall_stop() {
