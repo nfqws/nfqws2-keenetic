@@ -230,6 +230,7 @@ _startup_args() {
 
 _firewall_start() {
   local CMD=$1 # iptables or ip6tables
+  local MAX_PKT_IN MAX_PKT_OUT JNFQ CONN_CHECK CONN_SET_EXCLUDE CB_ORIG CB_REPLY
 
   MAX_PKT_IN=15
   MAX_PKT_OUT=15
