@@ -57,28 +57,32 @@ reload_service() {
 }
 
 validate_config() {
+  if [ -n "$IPV6_ENABLED" ] && [ "$IPV6_ENABLED" -ne "0" ] && ! command -v ip6tables &>/dev/null; then
+    echo "Command 'ip6tables' not found. IPv6 disabled" >&2
+    IPV6_ENABLED=0
+  fi
   if [[ "$NFQWS_BASE_ARGS" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_BASE_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_BASE_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
   if [[ "$NFQWS_ARGS" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
   if [[ "$NFQWS_ARGS_QUIC" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_ARGS_QUIC is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_ARGS_QUIC is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
   if [[ "$NFQWS_ARGS_UDP" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_ARGS_UDP is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_ARGS_UDP is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
   if [[ "$NFQWS_EXTRA_ARGS" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_EXTRA_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_EXTRA_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
   if [[ "$NFQWS_ARGS_IPSET" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_ARGS_IPSET is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_ARGS_IPSET is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
 }
