@@ -7,8 +7,7 @@ extra_command() {
   ALL_COMMANDS="${ALL_COMMANDS} ${cmd}"
 }
 
-extra_command "firewall_iptables" "Load IPv4 firewall rules"
-extra_command "firewall_ip6tables" "Load IPv6 firewall rules"
+extra_command "firewall_start" "Load firewall rules"
 extra_command "firewall_stop" "Unload firewall rules"
 extra_command "kernel_modules" "Load kernel modules"
 
@@ -24,8 +23,7 @@ start_service() {
   procd_set_param stderr 1
   procd_close_instance
 
-  firewall_iptables
-  firewall_ip6tables
+  firewall_start
   system_config
 
   echo 'Started NFQWS2 service'

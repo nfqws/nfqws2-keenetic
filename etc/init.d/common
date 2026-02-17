@@ -226,7 +226,7 @@ _startup_args() {
   echo "$args"
 }
 
-_firewall_rules() {
+_firewall_rules_mangle() {
   local CMD=$1 # iptables or ip6tables
   local MAX_PKT_IN MAX_PKT_OUT JNFQ CONN_CHECK CONN_SET_EXCLUDE CB_ORIG CB_REPLY
 
@@ -296,27 +296,43 @@ _firewall_rules() {
     echo "-A $IPT_CHAIN_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags RST RST $JNFQ"
   done
   echo "COMMIT"
+}
 
-  if [ "$CMD" == "iptables" ]; then
-    echo "*nat"
-    echo ":$IPT_CHAIN_NAT - [0:0]"
+_firewall_rules_nat() {
+  local CMD=$1 # iptables or ip6tables
 
-    if ! $CMD -w -t nat -C POSTROUTING -j $IPT_CHAIN_NAT &>/dev/null; then
-      echo "-A POSTROUTING -j $IPT_CHAIN_NAT"
-    fi
+  echo "*nat"
+  echo ":$IPT_CHAIN_NAT - [0:0]"
 
-    for IFACE in $ISP_INTERFACE; do
-      # 4) NAT MASQUERADE
-      echo "-A $IPT_CHAIN_NAT -o $IFACE -m mark --mark $MARK_PROCESSED -p udp -j MASQUERADE"
-    done
-    echo "COMMIT"
+  if ! $CMD -w -t nat -C POSTROUTING -j $IPT_CHAIN_NAT &>/dev/null; then
+    echo "-A POSTROUTING -j $IPT_CHAIN_NAT"
   fi
+
+  for IFACE in $ISP_INTERFACE; do
+    # 4) NAT MASQUERADE
+    echo "-A $IPT_CHAIN_NAT -o $IFACE -m mark --mark $MARK_PROCESSED -p udp -j MASQUERADE"
+  done
+  echo "COMMIT"
 }
 
 _firewall_start() {
-  local CMD=$1 # iptables or ip6tables
+  local CMD=$1   # iptables or ip6tables
 
-  _firewall_rules $CMD | $CMD-restore -n
+  _firewall_rules_mangle $CMD | $CMD-restore -n
+  if [ "$CMD" == "iptables" ]; then
+    _firewall_rules_nat $CMD | $CMD-restore -n
+  fi
+}
+
+_firewall_reload() {
+  local CMD=$1   # iptables or ip6tables
+  local TABLE=$2 # table name
+
+  if [ "$TABLE" == "mangle" ]; then
+    _firewall_rules_mangle $CMD | $CMD-restore -n
+  elif [ "$TABLE" == "nat" ] && [ "$CMD" == "iptables" ]; then
+    _firewall_rules_nat $CMD | $CMD-restore -n
+  fi
 }
 
 _firewall_stop() {
@@ -346,16 +362,27 @@ _firewall_stop() {
   fi
 }
 
-firewall_iptables() {
-  _firewall_start iptables
-}
+firewall_reload() {
+  local CMD=$1   # iptables or ip6tables
+  local TABLE=$2 # table name
 
-firewall_ip6tables() {
-  if [ -z "$IPV6_ENABLED" ] || [ "$IPV6_ENABLED" -eq "0" ]; then
+  if [ "$CMD" != "iptables" ] && [ "$CMD" != "ip6tables" ]; then
     return
   fi
 
-  _firewall_start ip6tables
+  if [ "$CMD" == "ip6tables" ] && ([ -z "$IPV6_ENABLED" ] || [ "$IPV6_ENABLED" -eq "0" ]); then
+    return
+  fi
+
+  _firewall_reload $CMD $TABLE
+}
+
+firewall_start() {
+  _firewall_start iptables
+
+  if [ -n "$IPV6_ENABLED" ] && [ "$IPV6_ENABLED" -ne "0" ]; then
+    _firewall_start ip6tables
+  fi
 }
 
 firewall_stop() {
