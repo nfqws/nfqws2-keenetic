@@ -23,7 +23,7 @@ _download_bins:
 _conffiles:
 	cp common/ipk/conffiles out/$(BUILD_DIR)/control/conffiles
 	@if [[ "$(BUILD_DIR)" == "openwrt" ]]; then \
-		sed -i '' -E "s#/opt/#/#g" out/$(BUILD_DIR)/control/conffiles; \
+		sed -i -E "s#/opt/#/#g" out/$(BUILD_DIR)/control/conffiles; \
 	fi
 
 _control:
@@ -41,17 +41,17 @@ _control:
 _scripts: CONFIG_VERSION=$(shell grep -E '^CONFIG_VERSION=' etc/nfqws2/nfqws2.conf 2>/dev/null | grep -oE '[0-9]+$$')
 _scripts:
 	cp common/ipk/preinst out/$(BUILD_DIR)/control/preinst
-	sed -i '' -E "s#^CURRENT_VERSION=([0-9]+)#CURRENT_VERSION=$(CONFIG_VERSION)#" out/$(BUILD_DIR)/control/preinst
+	sed -i -E "s#^CURRENT_VERSION=([0-9]+)#CURRENT_VERSION=$(CONFIG_VERSION)#" out/$(BUILD_DIR)/control/preinst
 
 	cp common/ipk/postinst out/$(BUILD_DIR)/control/postinst
 	cp common/ipk/prerm out/$(BUILD_DIR)/control/prerm
 	cp common/ipk/postrm out/$(BUILD_DIR)/control/postrm
 
 	@if [[ "$(BUILD_DIR)" == "openwrt" ]]; then \
-		sed -i '' -E "s#/opt/#/#g" out/$(BUILD_DIR)/control/preinst; \
-		sed -i '' -E "s#/opt/#/#g" out/$(BUILD_DIR)/control/postinst; \
-		sed -i '' -E "s#/opt/#/#g" out/$(BUILD_DIR)/control/prerm; \
-		sed -i '' -E "s#/opt/#/#g" out/$(BUILD_DIR)/control/postrm; \
+		sed -i -E "s#/opt/#/#g" out/$(BUILD_DIR)/control/preinst; \
+		sed -i -E "s#/opt/#/#g" out/$(BUILD_DIR)/control/postinst; \
+		sed -i -E "s#/opt/#/#g" out/$(BUILD_DIR)/control/prerm; \
+		sed -i -E "s#/opt/#/#g" out/$(BUILD_DIR)/control/postrm; \
 	fi
 
 _binary:
@@ -141,7 +141,7 @@ _apk:
 	mkdir -p out/$(BUILD_DIR)/data$(ROOT_DIR)/etc/init.d
 
 	cp -r etc/nfqws2 out/$(BUILD_DIR)/data$(ROOT_DIR)/etc/nfqws2
-	sed -i '' -E "s#/opt/#/#g" out/$(BUILD_DIR)/data$(ROOT_DIR)/etc/nfqws2/nfqws2.conf
+	sed -i -E "s#/opt/#/#g" out/$(BUILD_DIR)/data$(ROOT_DIR)/etc/nfqws2/nfqws2.conf
 	make _startup
 	make _binary-multi
 	make _lua
