@@ -3,7 +3,9 @@ _clean:
 	mkdir -p out/$(BUILD_DIR)/control
 	mkdir -p out/$(BUILD_DIR)/data
 
-_download_bins: TARGET_URL=$(shell curl -s 'https://api.github.com/repos/bol-van/zapret2/releases/latest' | grep 'browser_download_url' | grep 'embedded.tar.gz' | cut -d '"' -f 4)
+#_download_bins: TARGET_URL=$(shell curl -s 'https://api.github.com/repos/bol-van/zapret2/releases/latest' | grep 'browser_download_url' | grep 'embedded.tar.gz' | cut -d '"' -f 4)
+# TODO: temporary fix 0.9.3 because of startup problem on old kernels
+_download_bins: TARGET_URL=$(shell curl -s 'https://api.github.com/repos/bol-van/zapret2/releases/285987574' | grep 'browser_download_url' | grep 'embedded.tar.gz' | cut -d '"' -f 4)
 _download_bins:
 	rm -f out/zapret2.tar.gz
 	rm -rf out/zapret2

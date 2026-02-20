@@ -234,18 +234,21 @@ _firewall_rules_mangle() {
   MAX_PKT_OUT=15
 
   JNFQ="-j NFQUEUE --queue-num $NFQUEUE_NUM --queue-bypass"
-  CONN_CHECK="-m connmark ! --mark $MARK_EXCLUDE"
+  CONN_CHECK="-m mark ! --mark $MARK_PROCESSED"
   CONN_SET_EXCLUDE="-j CONNMARK --set-xmark $MARK_EXCLUDE"
 
   CB_ORIG="-m connbytes --connbytes-dir=original --connbytes-mode=packets"
   CB_REPLY="-m connbytes --connbytes-dir=reply --connbytes-mode=packets"
 
   local POLICY_EXC_RULE=""
+  local POLICY_RET_RULE=""
   if [ -n "$POLICY_MARK" ]; then
     if [ -n "$POLICY_EXCLUDE" ] && [ "$POLICY_EXCLUDE" -ne "0" ]; then
       POLICY_EXC_RULE="-m mark --mark $POLICY_MARK $CONN_SET_EXCLUDE"
+      POLICY_RET_RULE="-m mark --mark $POLICY_MARK -j RETURN"
     else
       POLICY_EXC_RULE="-m mark ! --mark $POLICY_MARK $CONN_SET_EXCLUDE"
+      POLICY_RET_RULE="-m mark ! --mark $POLICY_MARK -j RETURN"
     fi
   fi
 
@@ -262,33 +265,32 @@ _firewall_rules_mangle() {
 
   for IFACE in $ISP_INTERFACE; do
     # --- POSTROUTING (outgoing) ---
-    # 1) Apply policy-based exclusion
+    # Apply policy-based exclusion
     if [ -n "$POLICY_EXC_RULE" ]; then
       echo "-A $IPT_CHAIN_POST -o $IFACE $POLICY_EXC_RULE"
     fi
+    # Immediately return for packets matching the policy exclusion condition (deterministic for the current packet).
+    if [ -n "$POLICY_RET_RULE" ]; then
+      echo "-A $IPT_CHAIN_POST -o $IFACE $POLICY_RET_RULE"
+    fi
 
-    # 2) Exclude already processed packets by setting CONNMARK exclude bit (no packet mark modification)
-    # If nfqws already marked the packet as processed, exclude the whole connection from further NFQUEUE processing.
-    echo "-A $IPT_CHAIN_POST -o $IFACE -m mark --mark $MARK_PROCESSED $CONN_SET_EXCLUDE"
-
-    # If connection is excluded, stop processing in this chain immediately.
+    # Return for policy-excluded connections
     echo "-A $IPT_CHAIN_POST -o $IFACE -m connmark --mark $MARK_EXCLUDE -j RETURN"
 
-    # 3) NFQUEUE rules (process only packets NOT excluded via CONNMARK)
+    # NFQUEUE rules (process only packets NOT marked as processed)
     echo "-A $IPT_CHAIN_POST -o $IFACE $CONN_CHECK -p udp -m multiport --dports $UDP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ"
     echo "-A $IPT_CHAIN_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ"
     echo "-A $IPT_CHAIN_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags FIN FIN $JNFQ"
     echo "-A $IPT_CHAIN_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags RST RST $JNFQ"
 
     # --- PREROUTING (incoming / replies) ---
-    # Exclude already processed packets (incoming / replies) by setting CONNMARK exclude bit
-    # If nfqws marked an inbound packet as processed, exclude the whole connection from further NFQUEUE processing.
-    echo "-A $IPT_CHAIN_PRE -i $IFACE -m mark --mark $MARK_PROCESSED $CONN_SET_EXCLUDE"
-
-    # If connection is excluded, stop processing in this chain immediately.
+    # Return for policy-excluded connections
     echo "-A $IPT_CHAIN_PRE -i $IFACE -m connmark --mark $MARK_EXCLUDE -j RETURN"
 
-    # Exclude decision is stored in CONNMARK, so replies for excluded connections will be skipped too.
+    # Already processed packets should not be re-queued.
+    echo "-A $IPT_CHAIN_PRE -i $IFACE -m mark --mark $MARK_PROCESSED -j RETURN"
+
+    # NFQUEUE rules (process only packets NOT marked as processed)
     echo "-A $IPT_CHAIN_PRE -i $IFACE $CONN_CHECK -p udp -m multiport --sports $UDP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ"
     echo "-A $IPT_CHAIN_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ"
     echo "-A $IPT_CHAIN_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags SYN,ACK SYN,ACK $JNFQ"
@@ -309,7 +311,7 @@ _firewall_rules_nat() {
   fi
 
   for IFACE in $ISP_INTERFACE; do
-    # 4) NAT MASQUERADE
+    # NAT MASQUERADE
     echo "-A $IPT_CHAIN_NAT -o $IFACE -m mark --mark $MARK_PROCESSED -p udp -j MASQUERADE"
   done
   echo "COMMIT"
