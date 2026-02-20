@@ -123,8 +123,6 @@ kernel_modules() {
     if [ -n "$nfnetlink_mod_path" ]; then
       insmod "$nfnetlink_mod_path" &> /dev/null
       echo "nfnetlink_queue.ko loaded"
-    else
-      echo "Cannot find nfnetlink_queue.ko module"
     fi
   fi
 
@@ -134,8 +132,6 @@ kernel_modules() {
     if [ -n "$multiport_mod_path" ]; then
       insmod "$multiport_mod_path" &> /dev/null
       echo "xt_multiport.ko loaded"
-    else
-      echo "Cannot find xt_multiport.ko module"
     fi
   fi
 
@@ -145,8 +141,6 @@ kernel_modules() {
     if [ -n "$connbytes_mod_path" ]; then
       insmod "$connbytes_mod_path" &> /dev/null
       echo "xt_connbytes.ko loaded"
-    else
-      echo "Cannot find xt_connbytes.ko module"
     fi
   fi
 
