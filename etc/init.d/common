@@ -4,10 +4,10 @@ POLICY_MARK=
 MARK_EXCLUDE="0x20000000/0x20000000"
 # nfqws2 processed mark
 MARK_PROCESSED="0x40000000/0x40000000"
-# iptables groups
-IPT_GROUP_POST="nfqws_post"
-IPT_GROUP_PRE="nfqws_pre"
-IPT_GROUP_NAT="nfqws_nat"
+# iptables chains
+IPT_CHAIN_POST="nfqws2_post"
+IPT_CHAIN_PRE="nfqws2_pre"
+IPT_CHAIN_NAT="nfqws2_nat"
 
 source "$CONFFILE"
 if [ -f "$CONFFILE.run" ]; then
@@ -57,28 +57,32 @@ reload_service() {
 }
 
 validate_config() {
+  if [ -n "$IPV6_ENABLED" ] && [ "$IPV6_ENABLED" -ne "0" ] && ! command -v ip6tables &>/dev/null; then
+    echo "Command 'ip6tables' not found. IPv6 disabled" >&2
+    IPV6_ENABLED=0
+  fi
   if [[ "$NFQWS_BASE_ARGS" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_BASE_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_BASE_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
   if [[ "$NFQWS_ARGS" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
   if [[ "$NFQWS_ARGS_QUIC" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_ARGS_QUIC is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_ARGS_QUIC is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
   if [[ "$NFQWS_ARGS_UDP" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_ARGS_UDP is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_ARGS_UDP is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
   if [[ "$NFQWS_EXTRA_ARGS" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_EXTRA_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_EXTRA_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
   if [[ "$NFQWS_ARGS_IPSET" =~ "--new" ]]; then
-    echo "Using --new in NFQWS_ARGS_IPSET is not allowed. Use NFQWS_ARGS_CUSTOM instead"
+    echo "Using --new in NFQWS_ARGS_IPSET is not allowed. Use NFQWS_ARGS_CUSTOM instead" >&2
     return 1
   fi
 }
@@ -96,14 +100,8 @@ create_running_config() {
     POLICY_MARK=""
   fi
 
-  echo "ISP_INTERFACE=\"$ISP_INTERFACE\"" > "$CONFFILE.run"
-  echo "IPV6_ENABLED=$IPV6_ENABLED" >> "$CONFFILE.run"
-  echo "TCP_PORTS=$TCP_PORTS" >> "$CONFFILE.run"
-  echo "UDP_PORTS=$UDP_PORTS" >> "$CONFFILE.run"
-  echo "POLICY_NAME=\"$POLICY_NAME\"" >> "$CONFFILE.run"
-  echo "POLICY_EXCLUDE=$POLICY_EXCLUDE" >> "$CONFFILE.run"
+  echo "IPV6_ENABLED=$IPV6_ENABLED" > "$CONFFILE.run"
   echo "POLICY_MARK=\"$POLICY_MARK\"" >> "$CONFFILE.run"
-  echo "NFQUEUE_NUM=$NFQUEUE_NUM" >> "$CONFFILE.run"
 }
 
 remove_running_config() {
@@ -181,7 +179,7 @@ kernel_modules() {
 }
 
 _startup_args() {
-  local args="--user=$USER --qnum=$NFQUEUE_NUM $NFQWS_BASE_ARGS"
+  local args="--user=$USER --qnum=$NFQUEUE_NUM --fwmark=$MARK_PROCESSED $NFQWS_BASE_ARGS"
 
   # Fix bind multiple interfaces
   local iface_count=$(echo $ISP_INTERFACE | wc -w)
@@ -228,8 +226,9 @@ _startup_args() {
   echo "$args"
 }
 
-_firewall_start() {
+_firewall_rules_mangle() {
   local CMD=$1 # iptables or ip6tables
+  local MAX_PKT_IN MAX_PKT_OUT JNFQ CONN_CHECK CONN_SET_EXCLUDE CB_ORIG CB_REPLY
 
   MAX_PKT_IN=15
   MAX_PKT_OUT=15
@@ -253,98 +252,139 @@ _firewall_start() {
     fi
   fi
 
-  $CMD -w -t mangle -N $IPT_GROUP_POST 2>/dev/null
-  $CMD -w -t mangle -F $IPT_GROUP_POST
-  $CMD -w -t mangle -C POSTROUTING -j $IPT_GROUP_POST 2>/dev/null || $CMD -w -t mangle -A POSTROUTING -j $IPT_GROUP_POST
+  echo "*mangle"
+  echo ":$IPT_CHAIN_POST - [0:0]"
+  echo ":$IPT_CHAIN_PRE - [0:0]"
 
-  if [ "$CMD" == "iptables" ]; then
-    $CMD -w -t nat -N $IPT_GROUP_NAT 2>/dev/null
-    $CMD -w -t nat -F $IPT_GROUP_NAT
-    $CMD -w -t nat -C POSTROUTING -j $IPT_GROUP_NAT 2>/dev/null || $CMD -w -t nat -A POSTROUTING -j $IPT_GROUP_NAT
+  if ! $CMD -w -t mangle -C POSTROUTING -j $IPT_CHAIN_POST &>/dev/null; then
+    echo "-A POSTROUTING -j $IPT_CHAIN_POST"
   fi
-
-  $CMD -w -t mangle -N $IPT_GROUP_PRE 2>/dev/null
-  $CMD -w -t mangle -F $IPT_GROUP_PRE
-  $CMD -w -t mangle -C PREROUTING -j $IPT_GROUP_PRE 2>/dev/null || $CMD -w -t mangle -A PREROUTING -j $IPT_GROUP_PRE
+  if ! $CMD -w -t mangle -C PREROUTING -j $IPT_CHAIN_PRE &>/dev/null; then
+    echo "-A PREROUTING -j $IPT_CHAIN_PRE"
+  fi
 
   for IFACE in $ISP_INTERFACE; do
     # --- POSTROUTING (outgoing) ---
     # Apply policy-based exclusion
     if [ -n "$POLICY_EXC_RULE" ]; then
-      $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $POLICY_EXC_RULE
+      echo "-A $IPT_CHAIN_POST -o $IFACE $POLICY_EXC_RULE"
     fi
     # Immediately return for packets matching the policy exclusion condition (deterministic for the current packet).
     if [ -n "$POLICY_RET_RULE" ]; then
-      $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $POLICY_RET_RULE
+      echo "-A $IPT_CHAIN_POST -o $IFACE $POLICY_RET_RULE"
     fi
 
     # Return for policy-excluded connections
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE -m connmark --mark $MARK_EXCLUDE -j RETURN
+    echo "-A $IPT_CHAIN_POST -o $IFACE -m connmark --mark $MARK_EXCLUDE -j RETURN"
 
     # NFQUEUE rules (process only packets NOT marked as processed)
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p udp -m multiport --dports $UDP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags fin fin $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags rst rst $JNFQ
-
-    # NAT MASQUERADE
-    if [ "$CMD" == "iptables" ]; then
-      $CMD -w -t nat -A $IPT_GROUP_NAT -o $IFACE -m mark --mark $MARK_PROCESSED -p udp -j MASQUERADE
-    fi
+    echo "-A $IPT_CHAIN_POST -o $IFACE $CONN_CHECK -p udp -m multiport --dports $UDP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ"
+    echo "-A $IPT_CHAIN_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ"
+    echo "-A $IPT_CHAIN_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags FIN FIN $JNFQ"
+    echo "-A $IPT_CHAIN_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags RST RST $JNFQ"
 
     # --- PREROUTING (incoming / replies) ---
     # Return for policy-excluded connections
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE -m connmark --mark $MARK_EXCLUDE -j RETURN
+    echo "-A $IPT_CHAIN_PRE -i $IFACE -m connmark --mark $MARK_EXCLUDE -j RETURN"
 
     # Already processed packets should not be re-queued.
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE -m mark --mark $MARK_PROCESSED -j RETURN
+    echo "-A $IPT_CHAIN_PRE -i $IFACE -m mark --mark $MARK_PROCESSED -j RETURN"
 
     # NFQUEUE rules (process only packets NOT marked as processed)
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p udp -m multiport --sports $UDP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags syn,ack syn,ack $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags fin fin $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags rst rst $JNFQ
+    echo "-A $IPT_CHAIN_PRE -i $IFACE $CONN_CHECK -p udp -m multiport --sports $UDP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ"
+    echo "-A $IPT_CHAIN_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ"
+    echo "-A $IPT_CHAIN_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags SYN,ACK SYN,ACK $JNFQ"
+    echo "-A $IPT_CHAIN_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags FIN FIN $JNFQ"
+    echo "-A $IPT_CHAIN_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags RST RST $JNFQ"
   done
+  echo "COMMIT"
+}
+
+_firewall_rules_nat() {
+  local CMD=$1 # iptables or ip6tables
+
+  echo "*nat"
+  echo ":$IPT_CHAIN_NAT - [0:0]"
+
+  if ! $CMD -w -t nat -C POSTROUTING -j $IPT_CHAIN_NAT &>/dev/null; then
+    echo "-A POSTROUTING -j $IPT_CHAIN_NAT"
+  fi
+
+  for IFACE in $ISP_INTERFACE; do
+    # NAT MASQUERADE
+    echo "-A $IPT_CHAIN_NAT -o $IFACE -m mark --mark $MARK_PROCESSED -p udp -j MASQUERADE"
+  done
+  echo "COMMIT"
+}
+
+_firewall_start() {
+  local CMD=$1   # iptables or ip6tables
+
+  _firewall_rules_mangle $CMD | $CMD-restore -n
+  if [ "$CMD" == "iptables" ]; then
+    _firewall_rules_nat $CMD | $CMD-restore -n
+  fi
+}
+
+_firewall_reload() {
+  local CMD=$1   # iptables or ip6tables
+  local TABLE=$2 # table name
+
+  if [ "$TABLE" == "mangle" ]; then
+    _firewall_rules_mangle $CMD | $CMD-restore -n
+  elif [ "$TABLE" == "nat" ] && [ "$CMD" == "iptables" ]; then
+    _firewall_rules_nat $CMD | $CMD-restore -n
+  fi
 }
 
 _firewall_stop() {
   local CMD=$1 # iptables or ip6tables
 
   # Remove all possible jumps (in case of duplicates) and ignore errors if absent.
-  while $CMD -w -t mangle -C POSTROUTING -j $IPT_GROUP_POST 2>/dev/null; do
-    $CMD -w -t mangle -D POSTROUTING -j $IPT_GROUP_POST 2>/dev/null || break
+  while $CMD -w -t mangle -C POSTROUTING -j $IPT_CHAIN_POST 2>/dev/null; do
+    $CMD -w -t mangle -D POSTROUTING -j $IPT_CHAIN_POST 2>/dev/null || break
   done
-  while $CMD -w -t mangle -C PREROUTING -j $IPT_GROUP_PRE 2>/dev/null; do
-    $CMD -w -t mangle -D PREROUTING -j $IPT_GROUP_PRE 2>/dev/null || break
+  while $CMD -w -t mangle -C PREROUTING -j $IPT_CHAIN_PRE 2>/dev/null; do
+    $CMD -w -t mangle -D PREROUTING -j $IPT_CHAIN_PRE 2>/dev/null || break
   done
   if [ "$CMD" == "iptables" ]; then
-    while $CMD -w -t nat -C POSTROUTING -j $IPT_GROUP_NAT 2>/dev/null; do
-      $CMD -w -t nat -D POSTROUTING -j $IPT_GROUP_NAT 2>/dev/null || break
+    while $CMD -w -t nat -C POSTROUTING -j $IPT_CHAIN_NAT 2>/dev/null; do
+      $CMD -w -t nat -D POSTROUTING -j $IPT_CHAIN_NAT 2>/dev/null || break
     done
   fi
 
   # Flush and delete chains if they exist.
-  $CMD -w -t mangle -F $IPT_GROUP_POST 2>/dev/null
-  $CMD -w -t mangle -X $IPT_GROUP_POST 2>/dev/null
-  $CMD -w -t mangle -F $IPT_GROUP_PRE 2>/dev/null
-  $CMD -w -t mangle -X $IPT_GROUP_PRE 2>/dev/null
+  $CMD -w -t mangle -F $IPT_CHAIN_POST 2>/dev/null
+  $CMD -w -t mangle -X $IPT_CHAIN_POST 2>/dev/null
+  $CMD -w -t mangle -F $IPT_CHAIN_PRE 2>/dev/null
+  $CMD -w -t mangle -X $IPT_CHAIN_PRE 2>/dev/null
   if [ "$CMD" == "iptables" ]; then
-    $CMD -w -t nat -F $IPT_GROUP_NAT 2>/dev/null
-    $CMD -w -t nat -X $IPT_GROUP_NAT 2>/dev/null
+    $CMD -w -t nat -F $IPT_CHAIN_NAT 2>/dev/null
+    $CMD -w -t nat -X $IPT_CHAIN_NAT 2>/dev/null
   fi
 }
 
-firewall_iptables() {
-  _firewall_start iptables
-}
+firewall_reload() {
+  local CMD=$1   # iptables or ip6tables
+  local TABLE=$2 # table name
 
-firewall_ip6tables() {
-  if [ -z "$IPV6_ENABLED" ] || [ "$IPV6_ENABLED" -eq "0" ]; then
+  if [ "$CMD" != "iptables" ] && [ "$CMD" != "ip6tables" ]; then
     return
   fi
 
-  _firewall_start ip6tables
+  if [ "$CMD" == "ip6tables" ] && ([ -z "$IPV6_ENABLED" ] || [ "$IPV6_ENABLED" -eq "0" ]); then
+    return
+  fi
+
+  _firewall_reload $CMD $TABLE
+}
+
+firewall_start() {
+  _firewall_start iptables
+
+  if [ -n "$IPV6_ENABLED" ] && [ "$IPV6_ENABLED" -ne "0" ]; then
+    _firewall_start ip6tables
+  fi
 }
 
 firewall_stop() {
