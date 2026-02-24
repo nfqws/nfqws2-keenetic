@@ -13,12 +13,12 @@ _download_bins:
 	cd out/zapret2/zapret2-*/; mv binaries/ ../; cd ../../..
 	cd out/zapret2/zapret2-*/; mv lua/ ../; cd ../../..
 
-	upx -d out/zapret2/binaries/linux-mipsel/nfqws2
-	upx -d out/zapret2/binaries/linux-mips/nfqws2
-	upx -d out/zapret2/binaries/linux-arm64/nfqws2
-	upx -d out/zapret2/binaries/linux-arm/nfqws2
-	upx -d out/zapret2/binaries/linux-x86/nfqws2
-	upx -d out/zapret2/binaries/linux-x86_64/nfqws2
+#	upx -d out/zapret2/binaries/linux-mipsel/nfqws2
+#	upx -d out/zapret2/binaries/linux-mips/nfqws2
+#	upx -d out/zapret2/binaries/linux-arm64/nfqws2
+#	upx -d out/zapret2/binaries/linux-arm/nfqws2
+#	upx -d out/zapret2/binaries/linux-x86/nfqws2
+#	upx -d out/zapret2/binaries/linux-x86_64/nfqws2
 
 _conffiles:
 	cp common/ipk/conffiles out/$(BUILD_DIR)/control/conffiles

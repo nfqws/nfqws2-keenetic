@@ -26,11 +26,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Install upx
-      uses: crazy-max/ghaction-upx@v3
-      with:
-        install-only: true
-        version: v5.1.0
+#    - name: Install upx
+#      uses: crazy-max/ghaction-upx@v3
+#      with:
+#        install-only: true
+#        version: v5.1.0
 
     - name: Bump version file
       uses: francktrouillez/auto-bump-version-file@v1
@@ -88,11 +88,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Install upx
-      uses: crazy-max/ghaction-upx@v3
-      with:
-        install-only: true
-        version: v5.1.0
+#    - name: Install upx
+#      uses: crazy-max/ghaction-upx@v3
+#      with:
+#        install-only: true
+#        version: v5.1.0
 
     - name: Bump version file
       uses: francktrouillez/auto-bump-version-file@v1
