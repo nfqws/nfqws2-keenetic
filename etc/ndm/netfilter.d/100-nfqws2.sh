@@ -7,4 +7,5 @@ fi
 [ "$table" != "mangle" ] && [ "$table" != "nat" ] && exit
 
 # $type is `iptables` or `ip6tables`
-/opt/etc/init.d/S51nfqws2 firewall_"$type"
+# $table is `mangle` or `nat`
+/opt/etc/init.d/S51nfqws2 firewall_reload "$type" "$table"
