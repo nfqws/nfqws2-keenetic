@@ -10,8 +10,7 @@ start() {
 
   $NFQWS_BIN --daemon --pidfile=$PIDFILE $(_startup_args)
 
-  firewall_iptables
-  firewall_ip6tables
+  firewall_start
   system_config
 
   echo 'Started NFQWS2 service'
@@ -47,11 +46,11 @@ case "$1" in
   reload)
     reload_service
     ;;
-  firewall_iptables)
-    firewall_iptables
+  firewall_reload)
+    firewall_reload "$2" "$3"
     ;;
-  firewall_ip6tables)
-    firewall_ip6tables
+  firewall_start)
+    firewall_start
     ;;
   firewall_stop)
     firewall_stop
