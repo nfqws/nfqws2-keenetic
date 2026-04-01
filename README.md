@@ -10,7 +10,7 @@
 
 Пакеты для установки `nfqws2` на маршрутизаторы.
 
-Новая улучшенная версия [`nfqws-keenetic`](https://github.com/Anonym-tsk/nfqws-keenetic)
+Новая улучшенная версия [`nfqws-keenetic`](https://github.com/nfqws/nfqws-keenetic)
 
 > [!IMPORTANT]
 > Данный материал подготовлен в научно-технических целях.
