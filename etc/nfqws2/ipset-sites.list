@@ -1,0 +1,21 @@
+# Services whose addresses are pulled into ipset.list by ipset-update.sh
+# One service domain per line. Lines starting with # are ignored.
+#
+# Keep this list short and specific. Every service listed here adds its
+# addresses to ipset.list, and every address in that file is desynced
+# regardless of SNI, so a service that does not need the bypass only costs
+# CPU and adds risk.
+#
+# youtube.com is deliberately absent: its addresses pull in shared Google
+# infrastructure and break unrelated Google services.
+#
+# Anything that must never be desynced goes into lists/ipset_exclude.list,
+# which takes priority over ipset.list.
+
+discord.com
+discord.gg
+discord.media
+
+# Add your own below, for example:
+# instagram.com
+# x.com
