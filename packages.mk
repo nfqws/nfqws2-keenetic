@@ -108,6 +108,7 @@ _ipk:
 	mkdir -p out/$(BUILD_DIR)/data$(ROOT_DIR)/etc/init.d
 
 	cp -r etc/nfqws2 out/$(BUILD_DIR)/data$(ROOT_DIR)/etc/nfqws2
+	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/etc/nfqws2/dns-check.sh
 	make _startup
 
 	@if [[ "$(BUILD_DIR)" != "openwrt" ]]; then \
@@ -141,6 +142,7 @@ _apk:
 	mkdir -p out/$(BUILD_DIR)/data$(ROOT_DIR)/etc/init.d
 
 	cp -r etc/nfqws2 out/$(BUILD_DIR)/data$(ROOT_DIR)/etc/nfqws2
+	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/etc/nfqws2/dns-check.sh
 	sed -i -E "s#/opt/#/#g" out/$(BUILD_DIR)/data$(ROOT_DIR)/etc/nfqws2/nfqws2.conf
 	make _startup
 	make _binary-multi
