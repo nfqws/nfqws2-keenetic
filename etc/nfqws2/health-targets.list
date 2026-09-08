@@ -1,0 +1,6 @@
+# health-check.sh target list - one URL per line, "#" starts a comment.
+# Pick a small mix of well-known hosts you actually care about; this file
+# ships with a few generic examples only, replace with your own set.
+https://example.com/
+https://www.google.com/
+https://www.wikipedia.org/
