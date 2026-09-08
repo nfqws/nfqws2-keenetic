@@ -4,3 +4,4 @@
 /opt/etc/nfqws2/lists/exclude.list
 /opt/etc/nfqws2/lists/ipset.list
 /opt/etc/nfqws2/lists/ipset_exclude.list
+/opt/etc/nfqws2/janitor-drop.list

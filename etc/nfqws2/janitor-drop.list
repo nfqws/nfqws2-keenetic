@@ -1,0 +1,9 @@
+# Suffix denylist for auto-janitor.sh
+# One domain per line. A line matches the domain itself and all its subdomains.
+# Entries listed here are removed from auto.list on every janitor run.
+#
+# Useful for ad, analytics and telemetry hosts that nfqws2 keeps detecting as
+# blocked while unblocking them is pointless.
+#
+# Example:
+# ads.example.com
