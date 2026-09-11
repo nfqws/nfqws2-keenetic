@@ -15,22 +15,31 @@ if [ -f "$CONFFILE.run" ]; then
 fi
 
 is_running() {
-  PID_RUNNING=$(pgrep -nf "$NFQWS_BIN" 2>/dev/null)
-
-  if [ -z "$PID_RUNNING" ]; then
-    return 1
-  fi
-
   if [ ! -f "$PIDFILE" ]; then
     return 1
   fi
 
   PID_SAVED=$(cat "$PIDFILE" 2>/dev/null)
-  if [ "$PID_RUNNING" -ne "$PID_SAVED" ]; then
+
+  # A truncated or garbage pidfile must not reach /proc: "/proc//cmdline" and
+  # "/proc/-1/cmdline" are not the paths we mean to read.
+  case "$PID_SAVED" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  if [ "$PID_SAVED" -le 0 ]; then
     return 1
   fi
 
-  if ! kill -0 $PID_SAVED; then
+  # Check the pid from the pidfile instead of searching the process table by
+  # name: pgrep -nf matches any process whose command line merely contains the
+  # binary path, so an unrelated shell or ssh command mentioning it made
+  # is_running return a false negative. Reading /proc also drops the pgrep
+  # dependency, which is absent on some busybox builds.
+  # Compare argv[0] rather than the whole command line: with a stale pidfile and
+  # a recycled pid, any process merely mentioning the path would pass, and stop
+  # would then SIGTERM it.
+  PID_ARGV0=$(tr '\0' '\n' < "/proc/$PID_SAVED/cmdline" 2>/dev/null | head -n 1)
+  if [ "$PID_ARGV0" != "$NFQWS_BIN" ]; then
     return 1
   fi
 
