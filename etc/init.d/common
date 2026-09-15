@@ -221,14 +221,14 @@ _startup_args() {
   # QUIC
   if [ -n "$NFQWS_ARGS_QUIC" ]; then
     if [ -n "$NFQWS_ARGS_IPSET" ]; then
-      args="$args $NFQWS_ARGS_QUIC $NFQWS_ARGS_IPSET --ipset-ip=0.0.0.0 --new"
+      args="$args $NFQWS_ARGS_QUIC $NFQWS_ARGS_IPSET --ipset-ip=0.0.0.0 $MODE_ALL --new"
     fi
     args="$args $NFQWS_ARGS_QUIC $NFQWS_EXTRA_ARGS --new"
   fi
 
   # HTTP(S)
   if [ -n "$NFQWS_ARGS_IPSET" ]; then
-    args="$args $NFQWS_ARGS $NFQWS_ARGS_IPSET --ipset-ip=0.0.0.0 --new"
+    args="$args $NFQWS_ARGS $NFQWS_ARGS_IPSET --ipset-ip=0.0.0.0 $MODE_ALL --new"
   fi
   args="$args $NFQWS_ARGS $NFQWS_EXTRA_ARGS"
 
