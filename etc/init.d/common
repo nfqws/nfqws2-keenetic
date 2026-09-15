@@ -128,7 +128,7 @@ kernel_modules() {
   [ -n "$MODULE_DIRS" ] || MODULE_DIRS="/lib/modules/$KERNEL"
 
   # Try to load all modules (OpenWRT or Padavan)
-  modprobe -a -q nfnetlink_queue xt_multiport xt_connbytes xt_NFQUEUE xt_CONNMARK xt_connmark &> /dev/null
+  modprobe -a -q nfnetlink_queue xt_multiport xt_connbytes xt_NFQUEUE xt_CONNMARK xt_connmark ip_set_bitmap_port &> /dev/null
 
   if [ -z "$(lsmod 2>/dev/null | grep "nfnetlink_queue ")" ]; then
     nfnetlink_mod_path=$(find $MODULE_DIRS -name "nfnetlink_queue.ko*")
@@ -185,6 +185,16 @@ kernel_modules() {
       echo "nf_conntrack.ko loaded"
     fi
   fi
+
+  # Load ip_set_bitmap_port module for bitmap:port support
+  if [ -z "$(lsmod 2>/dev/null | grep "ip_set_bitmap_port ")" ]; then
+    bitmap_port_mod_path=$(find "/lib/modules/$KERNEL" -name "ip_set_bitmap_port.ko*" | head -n 1)
+
+    if [ -n "$bitmap_port_mod_path" ]; then
+      insmod "$bitmap_port_mod_path" &> /dev/null
+      echo "ip_set_bitmap_port.ko loaded"
+    fi
+  fi
 }
 
 _startup_args() {
@@ -233,6 +243,60 @@ _startup_args() {
   args="$args $NFQWS_ARGS $NFQWS_EXTRA_ARGS"
 
   echo "$args"
+}
+
+split_ports() {
+  local ports_str="$1"
+  local single_ports=""
+  local ranges=""
+  
+  OIFS=$IFS; IFS=','; for item in $ports_str; do
+    if echo "$item" | grep -q ':'; then
+      ranges="${ranges:+$ranges,}$item"
+    else
+      single_ports="${single_ports:+$single_ports,}$item"
+    fi
+  done; IFS=$OIFS
+  
+  echo "$single_ports"
+  echo "$ranges"
+}
+
+create_bitmap_ipset() {
+  local name="$1"
+  local ports="$2"
+  
+  [ -z "$ports" ] && return 1
+  
+  ipset create "$name" bitmap:port range 0-65535 2>/dev/null
+  ipset flush "$name"
+  
+  OIFS=$IFS; IFS=','; for port in $ports; do
+    ipset add "$name" "$port"
+  done; IFS=$OIFS
+  
+  return 0
+}
+
+ensure_ipsets() {
+  if ! command -v ipset >/dev/null 2>&1; then
+    return 1
+  fi
+  
+  TCP_SINGLE=$(split_ports "$TCP_PORTS" | head -1)
+  TCP_RANGES=$(split_ports "$TCP_PORTS" | tail -1)
+  UDP_SINGLE=$(split_ports "$UDP_PORTS" | head -1)
+  UDP_RANGES=$(split_ports "$UDP_PORTS" | tail -1)
+  
+  if [ -n "$TCP_SINGLE" ]; then
+    create_bitmap_ipset "nfqws_ports_tcp" "$TCP_SINGLE"
+  fi
+  
+  if [ -n "$UDP_SINGLE" ]; then
+    create_bitmap_ipset "nfqws_ports_udp" "$UDP_SINGLE"
+  fi
+  
+  export TCP_RANGES UDP_RANGES
 }
 
 _firewall_start() {
@@ -286,10 +350,25 @@ _firewall_start() {
     fi
 
     # NFQUEUE rules (process only packets NOT marked as processed)
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p udp -m multiport --dports $UDP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags fin fin $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_PORTS --tcp-flags rst rst $JNFQ
+      # UDP out
+        if [ -n "$UDP_SINGLE" ]; then
+          $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p udp -m set --match-set nfqws_ports_udp dst $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
+        fi
+        if [ -n "$UDP_RANGES" ]; then
+          $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p udp -m multiport --dports $UDP_RANGES $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
+        fi
+
+      # TCP out
+        if [ -n "$TCP_SINGLE" ]; then
+          $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m set --match-set nfqws_ports_tcp dst $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
+          $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m set --match-set nfqws_ports_tcp dst --tcp-flags fin fin $JNFQ
+          $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m set --match-set nfqws_ports_tcp dst --tcp-flags rst rst $JNFQ
+        fi
+        if [ -n "$TCP_RANGES" ]; then
+          $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_RANGES $CB_ORIG --connbytes 1:$MAX_PKT_OUT $JNFQ
+          $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_RANGES --tcp-flags fin fin $JNFQ
+          $CMD -w -t mangle -A $IPT_GROUP_POST -o $IFACE $CONN_CHECK -p tcp -m multiport --dports $TCP_RANGES --tcp-flags rst rst $JNFQ
+        fi
 
     # NAT MASQUERADE
     if [ "$CMD" == "iptables" ]; then
@@ -308,11 +387,27 @@ _firewall_start() {
     $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE -m mark --mark $MARK_PROCESSED -j RETURN
 
     # NFQUEUE rules (process only packets NOT marked as processed)
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p udp -m multiport --sports $UDP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags syn,ack syn,ack $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags fin fin $JNFQ
-    $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_PORTS --tcp-flags rst rst $JNFQ
+      # UDP in
+        if [ -n "$UDP_SINGLE" ]; then
+          $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p udp -m set --match-set nfqws_ports_udp dst $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
+        fi
+        if [ -n "$UDP_RANGES" ]; then
+          $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p udp -m multiport --sports $UDP_RANGES $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
+        fi
+
+      # TCP in
+        if [ -n "$TCP_SINGLE" ]; then
+          $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m set --match-set nfqws_ports_tcp dst $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
+          $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m set --match-set nfqws_ports_tcp dst --tcp-flags syn,ack syn,ack $JNFQ
+          $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m set --match-set nfqws_ports_tcp dst --tcp-flags fin fin $JNFQ
+          $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m set --match-set nfqws_ports_tcp dst --tcp-flags rst rst $JNFQ
+        fi
+        if [ -n "$TCP_RANGES" ]; then
+          $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_RANGES $CB_REPLY --connbytes 1:$MAX_PKT_IN $JNFQ
+          $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_RANGES --tcp-flags syn,ack syn,ack $JNFQ
+          $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_RANGES --tcp-flags fin fin $JNFQ
+          $CMD -w -t mangle -A $IPT_GROUP_PRE -i $IFACE $CONN_CHECK -p tcp -m multiport --sports $TCP_RANGES --tcp-flags rst rst $JNFQ
+        fi
   done
 }
 
