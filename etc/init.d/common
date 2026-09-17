@@ -46,16 +46,6 @@ status_service() {
   fi
 }
 
-reload_service() {
-  if ! is_running; then
-    echo 'Service NFQWS2 is not running' >&2
-    return 1
-  fi
-
-  echo 'Reloading NFQWS2 service...'
-  kill -1 $(cat "$PIDFILE")
-}
-
 validate_config() {
   if [[ "$NFQWS_BASE_ARGS" =~ "--new" ]]; then
     echo "Using --new in NFQWS_BASE_ARGS is not allowed. Use NFQWS_ARGS_CUSTOM instead"

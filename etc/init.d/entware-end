@@ -44,9 +44,6 @@ case "$1" in
     stop
     start
     ;;
-  reload)
-    reload_service
-    ;;
   firewall_iptables)
     firewall_iptables
     ;;
@@ -60,5 +57,5 @@ case "$1" in
     kernel_modules
     ;;
   *)
-    echo "Usage: $0 {start|stop|restart|reload|status}"
+    echo "Usage: $0 {start|stop|restart|status}"
 esac
