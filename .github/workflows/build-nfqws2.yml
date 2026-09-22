@@ -38,6 +38,16 @@ jobs:
           sha=$(git rev-parse HEAD)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
+      - name: Verify upstream build workflow
+        env:
+          EXPECTED_SHA256: 24d184d2dd11701c794fcf48136fff8ba4edaf503e5f01c4dc8ed8da51f93ada
+        run: |
+          ACTUAL_SHA256=$(sha256sum .github/workflows/build.yml | cut -d ' ' -f 1)
+          if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
+            echo "::error::zapret2 build workflow changed ($ACTUAL_SHA256). Review it and sync build-nfqws2.yml before updating EXPECTED_SHA256."
+            exit 1
+          fi
+
   build-linux:
     name: Linux ${{ matrix.arch }}
     needs: [resolve-release]
