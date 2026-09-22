@@ -3,22 +3,17 @@ _clean:
 	mkdir -p out/$(BUILD_DIR)/control
 	mkdir -p out/$(BUILD_DIR)/data
 
-_download_bins: TARGET_URL=$(shell curl -s 'https://api.github.com/repos/bol-van/zapret2/releases/latest' | grep 'browser_download_url' | grep 'embedded.tar.gz' | cut -d '"' -f 4)
-_download_bins:
-	rm -f out/zapret2.tar.gz
+# Archives are produced by build-nfqws2 and downloaded before packaging.
+.PHONY: _prepare_bins
+_prepare_bins:
+	@for arch in arm64 arm mips64 mipselsf mipssf x86 x86_64; do \
+		test -s "out/nfqws2/nfqws2-$$arch.tar.gz" || { echo "Missing patched binaries: $$arch (download build-nfqws2 artifacts to out/nfqws2)" >&2; exit 1; }; \
+	done
 	rm -rf out/zapret2
 	mkdir -p out/zapret2
-	curl -sSL $(TARGET_URL) -o out/zapret2.tar.gz
-	tar -C out/zapret2 -xzf "out/zapret2.tar.gz"
-	cd out/zapret2/zapret2-*/; mv binaries/ ../; cd ../../..
-	cd out/zapret2/zapret2-*/; mv lua/ ../; cd ../../..
-
-#	upx -d out/zapret2/binaries/linux-mipsel/nfqws2
-#	upx -d out/zapret2/binaries/linux-mips/nfqws2
-#	upx -d out/zapret2/binaries/linux-arm64/nfqws2
-#	upx -d out/zapret2/binaries/linux-arm/nfqws2
-#	upx -d out/zapret2/binaries/linux-x86/nfqws2
-#	upx -d out/zapret2/binaries/linux-x86_64/nfqws2
+	@for archive in out/nfqws2/nfqws2-*.tar.gz; do \
+		tar -C out/zapret2 -xzf "$$archive" || exit 1; \
+	done
 
 _conffiles:
 	cp common/ipk/conffiles out/$(BUILD_DIR)/control/conffiles
@@ -73,7 +68,6 @@ _binary-multi:
 	cp out/zapret2/binaries/linux-arm/nfqws2 out/$(BUILD_DIR)/data$(ROOT_DIR)/tmp/nfqws2_binary/nfqws2-armv7
 	cp out/zapret2/binaries/linux-x86/nfqws2 out/$(BUILD_DIR)/data$(ROOT_DIR)/tmp/nfqws2_binary/nfqws2-x86
 	cp out/zapret2/binaries/linux-x86_64/nfqws2 out/$(BUILD_DIR)/data$(ROOT_DIR)/tmp/nfqws2_binary/nfqws2-x86_64
-	cp out/zapret2/binaries/linux-lexra/nfqws2 out/$(BUILD_DIR)/data$(ROOT_DIR)/tmp/nfqws2_binary/nfqws2-lexra
 
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/tmp/nfqws2_binary/nfqws2-mipsel
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/tmp/nfqws2_binary/nfqws2-mips
@@ -82,7 +76,6 @@ _binary-multi:
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/tmp/nfqws2_binary/nfqws2-armv7
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/tmp/nfqws2_binary/nfqws2-x86
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/tmp/nfqws2_binary/nfqws2-x86_64
-	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/tmp/nfqws2_binary/nfqws2-lexra
 
 _startup:
 	@if [[ "$(BUILD_DIR)" == "openwrt" ]]; then \
@@ -146,7 +139,7 @@ _apk:
 	make _binary-multi
 	make _lua
 
-mipsel: _download_bins
+mipsel: _prepare_bins
 	@make \
 		BUILD_DIR=mipsel \
 		ARCH=mipsel-3.4 \
@@ -154,7 +147,7 @@ mipsel: _download_bins
 		BIN=linux-mipsel \
 		_ipk
 
-mips: _download_bins
+mips: _prepare_bins
 	@make \
 		BUILD_DIR=mips \
 		ARCH=mips-3.4 \
@@ -162,7 +155,7 @@ mips: _download_bins
 		BIN=linux-mips \
 		_ipk
 
-aarch64: _download_bins
+aarch64: _prepare_bins
 	@make \
 		BUILD_DIR=aarch64 \
 		ARCH=aarch64-3.10 \
@@ -170,14 +163,14 @@ aarch64: _download_bins
 		BIN=linux-arm64 \
 		_ipk
 
-multi: _download_bins
+multi: _prepare_bins
 	@make \
 		BUILD_DIR=all \
 		ARCH=all \
 		FILENAME=nfqws2-keenetic_$(VERSION)_all_entware.ipk \
 		_ipk
 
-openwrt: _download_bins
+openwrt: _prepare_bins
 	@make \
 		BUILD_DIR=openwrt \
 		ARCH=all \
