@@ -4,16 +4,16 @@ Date: Tue, 25 Aug 2026 14:28:33 +0300
 Subject: [PATCH 1/2] nfq2: fix TLS reasm desync on hardware fastpath routers
 
 ---
- nfq2/desync.c       | 143 ++++++++++++++++++++++++++++++++++++++++----
+ nfq2/desync.c       | 145 ++++++++++++++++++++++++++++++++++++++++----
  nfq2/packet_queue.c |   3 +-
  nfq2/packet_queue.h |   1 +
- 3 files changed, 133 insertions(+), 14 deletions(-)
+ 3 files changed, 135 insertions(+), 14 deletions(-)
 
 diff --git a/nfq2/desync.c b/nfq2/desync.c
 index 10deecde..6851d2ec 100644
 --- a/nfq2/desync.c
 +++ b/nfq2/desync.c
-@@ -631,12 +631,61 @@ static void reasm_client_cancel(t_ctrack *ctrack)
+@@ -631,12 +631,63 @@ static void reasm_client_cancel(t_ctrack *ctrack)
  {
  	reasm_client_stop(ctrack, "reassemble session cancelled\n");
  }
@@ -65,7 +65,9 @@ index 10deecde..6851d2ec 100644
 +		struct ip6_hdr *ip6 = (struct ip6_hdr *)mod_pkt;
 +		ip6->ip6_ctlun.ip6_un1.ip6_un1_plen = htons((uint16_t)(len - sizeof(struct ip6_hdr)));
 +	}
-+	tcp_fix_checksum(tcp, dis->len_l4, (struct ip *)mod_pkt, (struct ip6_hdr *)mod_pkt);
++	tcp_fix_checksum(tcp, dis->len_l4,
++		dis->ip ? (struct ip *)mod_pkt : NULL,
++		dis->ip6 ? (struct ip6_hdr *)mod_pkt : NULL);
 +
 +	*len_mod_pkt = len;
 +	return true;
@@ -75,7 +77,7 @@ index 10deecde..6851d2ec 100644
  static uint8_t ct_new_postnat_fix(const t_ctrack *ctrack, const struct dissect *dis, uint8_t *mod_pkt, size_t *len_mod_pkt)
  {
  #ifdef __linux__
-@@ -1619,7 +1668,26 @@ static uint8_t dpi_desync_tcp_packet_play(
+@@ -1619,7 +1670,26 @@ static uint8_t dpi_desync_tcp_packet_play(
  
  				if (!ReasmIsEmpty(&ps.ctrack->reasm_client))
  				{
@@ -103,7 +105,7 @@ index 10deecde..6851d2ec 100644
  					{
  						DLOG("DELAY desync until reasm is complete (#%u)\n", rawpacket_queue_count(&ps.ctrack->delayed));
  					}
-@@ -1635,6 +1703,27 @@ static uint8_t dpi_desync_tcp_packet_play(
+@@ -1635,6 +1705,27 @@ static uint8_t dpi_desync_tcp_packet_play(
  					{
  						replay_queue(&ps.ctrack->delayed);
  						reasm_client_fin(ps.ctrack);
@@ -131,7 +133,7 @@ index 10deecde..6851d2ec 100644
  					}
  					return VERDICT_DROP;
  				}
-@@ -2265,19 +2354,47 @@ static bool replay_queue(struct rawpacket_queue *q)
+@@ -2265,19 +2356,47 @@ static bool replay_queue(struct rawpacket_queue *q)
  		DLOG("REPLAYING delayed packet #%u offset %zu\n", i+1, offset);
  		modlen = sizeof(mod);
  		uint8_t verdict = dpi_desync_packet_play(i, count, offset, rp->fwmark_orig, rp->ifin, rp->ifout, rp->tpos_present ? &rp->tpos : NULL, rp->packet, rp->len, mod, &modlen);
@@ -224,10 +226,10 @@ Date: Tue, 25 Aug 2026 14:57:46 +0300
 Subject: [PATCH 2/2] nfq2: autodetect hw fastpath for TLS reasm
 
 ---
- nfq2/desync.c | 46 ++++++++++++++++++++++++++++++++++++++--------
+ nfq2/desync.c | 48 ++++++++++++++++++++++++++++++++++++++++--------
  nfq2/pools.c  |  5 +++--
  nfq2/pools.h  |  1 +
- 3 files changed, 42 insertions(+), 10 deletions(-)
+ 3 files changed, 44 insertions(+), 10 deletions(-)
 
 diff --git a/nfq2/desync.c b/nfq2/desync.c
 index 6851d2ec..49bac7b6 100644
@@ -278,7 +280,7 @@ index 6851d2ec..49bac7b6 100644
  					// the remaining reasm fragments are not reaching NFQUEUE (FASTNAT/RTCACHE
  					// steals them; the dup-ACK storm proves the fastpath itself already delivered
  					// them to the server out of order). discard the reasm and the queued originals
-@@ -1677,8 +1699,12 @@ static uint8_t dpi_desync_tcp_packet_play(
+@@ -1677,8 +1699,14 @@ static uint8_t dpi_desync_tcp_packet_play(
  					// path with regular single packet semantics: split positions inside the first
  					// fragment still resolve (SNI is almost always there). flows with SNI in the
  					// stolen fragments can not be desynced - those bytes never reach NFQUEUE.
@@ -290,8 +292,10 @@ index 6851d2ec..49bac7b6 100644
 +						ipcache_update_fastpath(ps.sdip4, ps.sdip6);
  						DLOG("retransmission while reasm is incomplete (fastpath steals further fragments). discarding reasm, falling back to single packet desync\n");
  						reasm_client_cancel_discard(ps.ctrack);
++						rdata_payload = dis->data_payload;
++						rlen_payload = dis->len_payload;
  						goto rediscover;
-@@ -1708,13 +1734,17 @@ static uint8_t dpi_desync_tcp_packet_play(
+@@ -1708,13 +1736,17 @@ static uint8_t dpi_desync_tcp_packet_play(
  					// Workaround for hardware fastpath platforms (Mediatek MT7621, Keenetic KN-1011):
  					// DROP of the first fragment triggers RTCACHE in conntrack, after which
  					// subsequent fragments bypass NFQUEUE entirely via hardware shortcut.

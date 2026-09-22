@@ -1,8 +1,10 @@
 # Патчи zapret2
 
-`001-tls-reasm-fastpath.patch` — оба коммита [PR #303](https://github.com/bol-van/zapret2/pull/303):
+`001-tls-reasm-fastpath.patch` основан на обоих коммитах [PR #303](https://github.com/bol-van/zapret2/pull/303):
 `d988e5407fbaf93c33ed662e59493b4127202626` и `a035d89b18221d376382728884a80200fce09c1b`.
-Патч сохранён без изменений и добавляет autodetect аппаратного fastpath при TLS reassembly.
+Он добавляет autodetect аппаратного fastpath при TLS reassembly и содержит два дополнительных исправления:
+корректный выбор IPv4/IPv6 pseudo-header при расчёте TCP checksum и сброс ссылки
+на освобождённый reassembly-буфер перед возвратом к обработке текущего пакета.
 
 Перед сборкой `.github/workflows/build-nfqws2.yml` определяет последний стабильный
 релиз zapret2 через GitHub API `releases/latest` (без draft и prerelease).
