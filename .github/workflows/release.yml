@@ -132,184 +132,184 @@ jobs:
         ls ./out >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
 
-#  build-repository:
-#    runs-on: ubuntu-22.04
-#    needs: [build-openwrt, build-entware]
-#
-#    steps:
-#    - name: Checkout
-#      uses: actions/checkout@v4
-#
-#    - name: Bump version file
-#      uses: francktrouillez/auto-bump-version-file@v1
-#      with:
-#        file: 'VERSION'
-#
-#    - name: Download artifacts
-#      uses: actions/download-artifact@v4
-#      with:
-#        path: out
-#        pattern: '@(openwrt|entware)'
-#        merge-multiple: true
-#
-#    - name: Display artifacts
-#      run: ls ./out
-#
-#    - name: Build repository
-#      run: make repository
-#
-#    - name: Create openwrt keys
-#      env:
-#        OPENWRT_PUBLIC_KEY: ${{ secrets.OPENWRT_PUBLIC_KEY }}
-#        OPENWRT_APK_PUBLIC_KEY: ${{ secrets.OPENWRT_APK_PUBLIC_KEY }}
-#      run: |
-#        echo "$OPENWRT_PUBLIC_KEY" > ./out/_pages/openwrt/nfqws2-keenetic.pub
-#        echo "$OPENWRT_APK_PUBLIC_KEY" > ./out/_pages/openwrt/nfqws2-keenetic.pem
-#
-#    - name: Copy openwrt indexes
-#      run: |
-#        cp ./out/Packages ./out/_pages/openwrt/Packages
-#        cp ./out/Packages.gz ./out/_pages/openwrt/Packages.gz
-#        cp ./out/Packages.sig ./out/_pages/openwrt/Packages.sig
-#        cp ./out/packages.adb ./out/_pages/openwrt/packages.adb
-#
-#    - name: Upload pages artifact
-#      uses: actions/upload-pages-artifact@v3
-#      with:
-#        path: ./out/_pages
-#
-#    - name: Summary
-#      run: |
-#        echo '```' >> $GITHUB_STEP_SUMMARY
-#        ls -R ./out/_pages >> $GITHUB_STEP_SUMMARY
-#        echo '```' >> $GITHUB_STEP_SUMMARY
-#
-#  create-release:
-#    runs-on: ubuntu-22.04
-#    needs: [build-repository]
-#
-#    steps:
-#    - name: Checkout repository
-#      uses: actions/checkout@v4
-#
-#    - name: Bump version file
-#      uses: francktrouillez/auto-bump-version-file@v1
-#      with:
-#        file: 'VERSION'
-#
-#    - name: Read version
-#      id: version
-#      uses: juliangruber/read-file-action@v1
-#      with:
-#        path: ./VERSION
-#        trim: true
-#
-#    - name: Download artifacts
-#      uses: actions/download-artifact@v4
-#      with:
-#        path: out
-#        pattern: '@(openwrt|entware)'
-#
-#    - name: Display artifacts
-#      run: ls -R ./out
-#
-#    - name: Commit and push version file
-#      run: |
-#        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-#        git config --local user.name "github-actions[bot]"
-#        git add VERSION
-#        git commit -m "Version ${{ steps.version.outputs.content }}"
-#        git tag -a v${{ steps.version.outputs.content }} -m "Version ${{ steps.version.outputs.content }}"
-#        git push origin v${{ steps.version.outputs.content }}
-#        git push
-#
-#    - name: Create Release
-#      id: create_release
-#      uses: actions/create-release@v1.1.4
-#      env:
-#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#      with:
-#        tag_name: v${{ steps.version.outputs.content }}
-#        release_name: Release v${{ steps.version.outputs.content }}
-#        draft: false
-#        prerelease: true
-#
-#    - name: Upload Release mips
-#      uses: actions/upload-release-asset@v1
-#      env:
-#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#      with:
-#        upload_url: ${{ steps.create_release.outputs.upload_url }}
-#        asset_path: ./out/entware/nfqws2-keenetic_${{ steps.version.outputs.content }}_mips-3.4.ipk
-#        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_mips-3.4.ipk
-#        asset_content_type: application/octet-stream
-#
-#    - name: Upload Release mipsel
-#      uses: actions/upload-release-asset@v1
-#      env:
-#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#      with:
-#        upload_url: ${{ steps.create_release.outputs.upload_url }}
-#        asset_path: ./out/entware/nfqws2-keenetic_${{ steps.version.outputs.content }}_mipsel-3.4.ipk
-#        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_mipsel-3.4.ipk
-#        asset_content_type: application/octet-stream
-#
-#    - name: Upload Release aarch64
-#      uses: actions/upload-release-asset@v1
-#      env:
-#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#      with:
-#        upload_url: ${{ steps.create_release.outputs.upload_url }}
-#        asset_path: ./out/entware/nfqws2-keenetic_${{ steps.version.outputs.content }}_aarch64-3.10.ipk
-#        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_aarch64-3.10.ipk
-#        asset_content_type: application/octet-stream
-#
-#    - name: Upload Release multiarch
-#      uses: actions/upload-release-asset@v1
-#      env:
-#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#      with:
-#        upload_url: ${{ steps.create_release.outputs.upload_url }}
-#        asset_path: ./out/entware/nfqws2-keenetic_${{ steps.version.outputs.content }}_all_entware.ipk
-#        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_all_entware.ipk
-#        asset_content_type: application/octet-stream
-#
-#    - name: Upload Release openwrt ipk
-#      uses: actions/upload-release-asset@v1
-#      env:
-#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#      with:
-#        upload_url: ${{ steps.create_release.outputs.upload_url }}
-#        asset_path: ./out/openwrt/nfqws2-keenetic_${{ steps.version.outputs.content }}_all.ipk
-#        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_all_openwrt.ipk
-#        asset_content_type: application/octet-stream
-#
-#    - name: Upload Release openwrt apk
-#      uses: actions/upload-release-asset@v1
-#      env:
-#        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#      with:
-#        upload_url: ${{ steps.create_release.outputs.upload_url }}
-#        asset_path: ./out/openwrt/nfqws2-keenetic-${{ steps.version.outputs.content }}.apk
-#        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_all_openwrt.apk
-#        asset_content_type: application/octet-stream
-#
-#    - name: Summary
-#      run: |
-#        echo "Release v${{ steps.version.outputs.content }} created" >> $GITHUB_STEP_SUMMARY
-#
-#  deploy-repository:
-#    runs-on: ubuntu-22.04
-#    needs: [build-repository]
-#
-#    steps:
-#    - name: Setup Pages
-#      uses: actions/configure-pages@v5
-#
-#    - name: Deploy to GitHub Pages
-#      id: deployment
-#      uses: actions/deploy-pages@v4
-#
-#    - name: Summary
-#      run: |
-#        echo "Repository deployed" >> $GITHUB_STEP_SUMMARY
+  build-repository:
+    runs-on: ubuntu-22.04
+    needs: [build-openwrt, build-entware]
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Bump version file
+      uses: francktrouillez/auto-bump-version-file@v1
+      with:
+        file: 'VERSION'
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: out
+        pattern: '@(openwrt|entware)'
+        merge-multiple: true
+
+    - name: Display artifacts
+      run: ls ./out
+
+    - name: Build repository
+      run: make repository
+
+    - name: Create openwrt keys
+      env:
+        OPENWRT_PUBLIC_KEY: ${{ secrets.OPENWRT_PUBLIC_KEY }}
+        OPENWRT_APK_PUBLIC_KEY: ${{ secrets.OPENWRT_APK_PUBLIC_KEY }}
+      run: |
+        echo "$OPENWRT_PUBLIC_KEY" > ./out/_pages/openwrt/nfqws2-keenetic.pub
+        echo "$OPENWRT_APK_PUBLIC_KEY" > ./out/_pages/openwrt/nfqws2-keenetic.pem
+
+    - name: Copy openwrt indexes
+      run: |
+        cp ./out/Packages ./out/_pages/openwrt/Packages
+        cp ./out/Packages.gz ./out/_pages/openwrt/Packages.gz
+        cp ./out/Packages.sig ./out/_pages/openwrt/Packages.sig
+        cp ./out/packages.adb ./out/_pages/openwrt/packages.adb
+
+    - name: Upload pages artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ./out/_pages
+
+    - name: Summary
+      run: |
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        ls -R ./out/_pages >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+  create-release:
+    runs-on: ubuntu-22.04
+    needs: [build-repository]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Bump version file
+      uses: francktrouillez/auto-bump-version-file@v1
+      with:
+        file: 'VERSION'
+
+    - name: Read version
+      id: version
+      uses: juliangruber/read-file-action@v1
+      with:
+        path: ./VERSION
+        trim: true
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: out
+        pattern: '@(openwrt|entware)'
+
+    - name: Display artifacts
+      run: ls -R ./out
+
+    - name: Commit and push version file
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add VERSION
+        git commit -m "Version ${{ steps.version.outputs.content }}"
+        git tag -a v${{ steps.version.outputs.content }} -m "Version ${{ steps.version.outputs.content }}"
+        git push origin v${{ steps.version.outputs.content }}
+        git push
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1.1.4
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.version.outputs.content }}
+        release_name: Release v${{ steps.version.outputs.content }}
+        draft: false
+        prerelease: true
+
+    - name: Upload Release mips
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./out/entware/nfqws2-keenetic_${{ steps.version.outputs.content }}_mips-3.4.ipk
+        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_mips-3.4.ipk
+        asset_content_type: application/octet-stream
+
+    - name: Upload Release mipsel
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./out/entware/nfqws2-keenetic_${{ steps.version.outputs.content }}_mipsel-3.4.ipk
+        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_mipsel-3.4.ipk
+        asset_content_type: application/octet-stream
+
+    - name: Upload Release aarch64
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./out/entware/nfqws2-keenetic_${{ steps.version.outputs.content }}_aarch64-3.10.ipk
+        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_aarch64-3.10.ipk
+        asset_content_type: application/octet-stream
+
+    - name: Upload Release multiarch
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./out/entware/nfqws2-keenetic_${{ steps.version.outputs.content }}_all_entware.ipk
+        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_all_entware.ipk
+        asset_content_type: application/octet-stream
+
+    - name: Upload Release openwrt ipk
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./out/openwrt/nfqws2-keenetic_${{ steps.version.outputs.content }}_all.ipk
+        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_all_openwrt.ipk
+        asset_content_type: application/octet-stream
+
+    - name: Upload Release openwrt apk
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./out/openwrt/nfqws2-keenetic-${{ steps.version.outputs.content }}.apk
+        asset_name: nfqws2-keenetic_${{ steps.version.outputs.content }}_all_openwrt.apk
+        asset_content_type: application/octet-stream
+
+    - name: Summary
+      run: |
+        echo "Release v${{ steps.version.outputs.content }} created" >> $GITHUB_STEP_SUMMARY
+
+  deploy-repository:
+    runs-on: ubuntu-22.04
+    needs: [build-repository]
+
+    steps:
+    - name: Setup Pages
+      uses: actions/configure-pages@v5
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+
+    - name: Summary
+      run: |
+        echo "Repository deployed" >> $GITHUB_STEP_SUMMARY
