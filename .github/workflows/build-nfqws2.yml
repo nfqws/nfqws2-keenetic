@@ -1,0 +1,241 @@
+# Linux build recipe from bol-van/zapret2 v1.0.5.2 (.github/workflows/build.yml).
+name: Build patched nfqws2
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  resolve-release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - name: Get latest stable zapret2 release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(gh api repos/bol-van/zapret2/releases/latest --jq '.tag_name')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          repository: bol-van/zapret2
+          ref: refs/tags/${{ steps.release.outputs.version }}
+
+      - name: Resolve release commit
+        id: commit
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Verify upstream build workflow
+        env:
+          EXPECTED_SHA256: 24d184d2dd11701c794fcf48136fff8ba4edaf503e5f01c4dc8ed8da51f93ada
+        run: |
+          ACTUAL_SHA256=$(sha256sum .github/workflows/build.yml | cut -d ' ' -f 1)
+          if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
+            echo "::error::zapret2 build workflow changed ($ACTUAL_SHA256). Review it and sync build-nfqws2.yml before updating EXPECTED_SHA256."
+            exit 1
+          fi
+
+  build-linux:
+    name: Linux ${{ matrix.arch }}
+    needs: [resolve-release]
+    runs-on: ubuntu-latest
+    env:
+      ZAPRET_VERSION: ${{ needs.resolve-release.outputs.version }}
+      ZAPRET_SHA: ${{ needs.resolve-release.outputs.sha }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            tool: aarch64-unknown-linux-musl
+          - arch: arm
+            tool: armv6-unknown-linux-musleabi
+          - arch: mips64
+            tool: mips64-unknown-linux-musl
+          - arch: mipselsf
+            tool: mipsel-unknown-linux-muslsf
+          - arch: mipssf
+            tool: mips-unknown-linux-muslsf
+          - arch: x86
+            tool: i586-unknown-linux-musl
+          - arch: x86_64
+            tool: x86_64-unknown-linux-musl
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout zapret2
+        uses: actions/checkout@v4
+        with:
+          repository: bol-van/zapret2
+          ref: ${{ env.ZAPRET_SHA }}
+          path: zapret2
+
+      - name: Apply patches
+        run: |
+          for patch in patches/*.patch; do
+            patch --batch --fuzz=0 -p1 -d zapret2 < "$patch"
+          done
+
+      - name: Set up build tools
+        env:
+          TOOL: ${{ matrix.tool }}
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt update -qq
+          # luajit buildvm requires 32 bit executable on host platform for 32 bit cross targets
+          sudo apt install -y pigz libcap-dev libc6-dev gcc-multilib
+          URL=https://github.com/bol-van/musl-cross/releases/download/latest/$TOOL.tar.xz
+          mkdir -p $HOME/tools
+          wget -qO- $URL | tar -C $HOME/tools -xJ || exit 1
+          [[ -d "$HOME/tools/$TOOL/bin" ]] && echo "$HOME/tools/$TOOL/bin" >> $GITHUB_PATH
+
+      - name: Build
+        env:
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.tool }}
+          CFLAGS: ''
+          LDFLAGS: ''
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LUA_VER: 5.5
+          LUA_RELEASE: 5.5.1
+          LUAJIT_VER: 2.1
+          LUAJIT_RELEASE: 2.1-20250826
+          LUAJIT_LUAVER: 5.1
+          MINSIZE: -flto=auto -ffunction-sections -fdata-sections
+          LDMINSIZE: -Wl,--gc-sections -flto=auto
+          #current toolchain's musl is not PIC.  will be broken by upx
+          #PIC: -fpic
+        run: |
+          DEPS_DIR=$GITHUB_WORKSPACE/deps
+          export CC="$TARGET-gcc"
+          export LD=$TARGET-ld
+          export AR=$TARGET-ar
+          export NM=$TARGET-nm
+          export STRIP=$TARGET-strip
+          export PKG_CONFIG_PATH=$DEPS_DIR/lib/pkgconfig
+          export STAGING_DIR=$RUNNER_TEMP
+          OPTIMIZE=-Oz
+          SYSMALLOC=-DLUAJIT_USE_SYSMALLOC
+          case "$ARCH" in
+            arm)
+              CPU="-mcpu=arm1176jzf-s -mthumb"
+              ;;
+            arm64|mips64)
+              # not safe without GC64
+              SYSMALLOC=
+              ;;
+          esac
+          MINSIZE="$OPTIMIZE $MINSIZE"
+
+          if [[ "$ARCH" == x86 ]]; then
+            # use classic lua
+            wget -qO- https://www.lua.org/ftp/lua-${LUA_RELEASE}.tar.gz | tar -xz
+            (
+              cd lua-${LUA_RELEASE}
+              make CC=$CC AR="$AR rc" CFLAGS="$CPU $MINSIZE $CFLAGS" LDFLAGS="$LDMINSIZE $LDFLAGS" linux -j$(nproc)
+              make install INSTALL_TOP=$DEPS_DIR INSTALL_BIN=$DEPS_DIR/bin INSTALL_INC=$DEPS_DIR/include/lua${LUA_VER} INSTALL_LIB=$DEPS_DIR/lib
+            )
+            LJIT=0
+            LCFLAGS="-I${DEPS_DIR}/include/lua${LUA_VER}"
+            LLIB="-L${DEPS_DIR}/lib -llua"
+          else
+            # luajit
+            wget -qO- https://github.com/openresty/luajit2/archive/refs/tags/v${LUAJIT_RELEASE}.tar.gz | tar -xz
+            case "$ARCH" in
+              *64*)
+                HOSTCC="cc"
+                ;;
+              *)
+                HOSTCC="cc -m32"
+            esac
+            echo ARCH=$ARCH SYSMALLOC=$SYSMALLOC
+            (
+              cd luajit2-*
+              make BUILDMODE=static XCFLAGS="$SYSMALLOC -DLUAJIT_DISABLE_FFI" HOST_CC="$HOSTCC" CROSS= CC="$CC" TARGET_AR="$AR rcus" TARGET_STRIP=$STRIP TARGET_CFLAGS="$CPU $MINSIZE $CFLAGS" TARGET_LDFLAGS="$CPU $LDMINSIZE $LDFLAGS" -j$(nproc)
+              make install PREFIX= DESTDIR=$DEPS_DIR
+            )
+            LJIT=1
+            LCFLAGS="-I${DEPS_DIR}/include/luajit-${LUAJIT_VER}"
+            LLIB="-L${DEPS_DIR}/lib -lluajit-${LUAJIT_LUAVER}"
+          fi
+
+          # netfilter libs
+          wget -qO- https://www.netfilter.org/pub/libnfnetlink/libnfnetlink-1.0.2.tar.bz2 | tar -xj
+          wget -qO- https://www.netfilter.org/pub/libmnl/libmnl-1.0.5.tar.bz2 | tar -xj
+          wget -qO- https://www.netfilter.org/pub/libnetfilter_queue/libnetfilter_queue-1.0.5.tar.bz2 | tar -xj
+
+          for i in libmnl libnfnetlink libnetfilter_queue ; do
+            (
+              cd $i-*
+              CFLAGS="$CPU $MINSIZE $CFLAGS" \
+              LDFLAGS="$LDMINSIZE $LDFLAGS" \
+              ./configure --prefix= --host=$TARGET --enable-static --disable-shared --disable-dependency-tracking
+              make install -j$(nproc) DESTDIR=$DEPS_DIR
+            )
+            sed -i "s|^prefix=.*|prefix=$DEPS_DIR|g" $DEPS_DIR/lib/pkgconfig/$i.pc
+          done
+
+          # zlib
+          gh api repos/madler/zlib/releases/latest --jq '.tag_name' |\
+            xargs -I{} wget -qO- https://github.com/madler/zlib/archive/refs/tags/{}.tar.gz | tar -xz
+          (
+            cd zlib-*
+            CFLAGS="$CPU $MINSIZE $CFLAGS" \
+            ./configure --prefix= --static
+            make install -j$(nproc) DESTDIR=$DEPS_DIR
+          )
+
+          # headers
+          # wget https://git.alpinelinux.org/aports/plain/main/bsd-compat-headers/queue.h && \
+          # wget https://git.kernel.org/pub/scm/libs/libcap/libcap.git/plain/libcap/include/sys/capability.h && \
+          install -Dm644 -t $DEPS_DIR/include/sys /usr/include/x86_64-linux-gnu/sys/queue.h /usr/include/sys/capability.h
+
+          # zapret2
+          OPTIMIZE=$OPTIMIZE \
+          CFLAGS="-DZAPRET_GH_VER=$ZAPRET_VERSION -DZAPRET_GH_HASH=$ZAPRET_SHA -static-libgcc -I$DEPS_DIR/include $CPU $CFLAGS" \
+          LDFLAGS="-L$DEPS_DIR/lib $LDFLAGS" \
+          make -C zapret2 CFLAGS_PIC= LDFLAGS_PIE=-static LUA_JIT=$LJIT LUA_CFLAGS="$LCFLAGS" LUA_LIB="$LLIB" -j$(nproc)
+
+      - name: Prepare embedded binaries
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          # Match upstream embedded releases: UPX 4.2.4, except mips64.
+          if [[ "$ARCH" != mips64 ]]; then
+            curl -fsSL https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-amd64_linux.tar.xz | tar -xJ
+            ./upx-4.2.4-amd64_linux/upx --best --lzma zapret2/binaries/my/nfqws2 || true
+          fi
+          case "$ARCH" in
+            mipselsf) BIN=linux-mipsel ;;
+            mipssf) BIN=linux-mips ;;
+            *) BIN=linux-$ARCH ;;
+          esac
+          mkdir -p "output/binaries/$BIN"
+          cp zapret2/binaries/my/nfqws2 "output/binaries/$BIN/"
+          # Ship Lua from the same source revision, once across the matrix.
+          if [[ "$ARCH" == arm64 ]]; then
+            cp -a zapret2/lua output/lua
+            pigz -11 output/lua/*.lua
+          fi
+          tar -C output -czf nfqws2-$ARCH.tar.gz .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nfqws2-${{ matrix.arch }}
+          path: nfqws2-*.tar.gz
+          if-no-files-found: error

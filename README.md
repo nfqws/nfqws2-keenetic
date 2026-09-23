@@ -144,7 +144,7 @@
    mkdir -p /opt/etc/opkg
    echo "src/gz nfqws2-keenetic https://nfqws.github.io/nfqws2-keenetic/all" > /opt/etc/opkg/nfqws2-keenetic.conf
    ```
-   Репозиторий универсальный, поддерживаемые архитектуры: `mipsel`, `mips`, `mips64`, `aarch64`, `armv7`, `x86`, `x86_64`, `lexra`.
+   Репозиторий универсальный, поддерживаемые архитектуры: `mipsel`, `mips`, `mips64`, `aarch64`, `armv7`, `x86`, `x86_64`.
 
    <details>
      <summary>Или можете выбрать репозиторий под конкретную архитектуру</summary>
@@ -229,7 +229,7 @@ _Не забудьте поставить галочку на интерфейс
    ```bash
    echo "src/gz nfqws2-keenetic https://nfqws.github.io/nfqws2-keenetic/openwrt" > /etc/opkg/nfqws2-keenetic.conf
    ```
-   Репозиторий универсальный, поддерживаемые архитектуры: `mipsel`, `mips`, `mips64`, `aarch64`, `armv7`, `x86`, `x86_64`, `lexra`.
+   Репозиторий универсальный, поддерживаемые архитектуры: `mipsel`, `mips`, `mips64`, `aarch64`, `armv7`, `x86`, `x86_64`.
    Для добавления поддержки новых устройств, [создайте Feature Request](https://github.com/nfqws/nfqws2-keenetic/issues/new?template=feature_request.md&title=%5BFeature+request%5D+)
 
 4. Установите пакет
@@ -257,7 +257,7 @@ _Не забудьте поставить галочку на интерфейс
    ```bash
    echo "https://nfqws.github.io/nfqws2-keenetic/openwrt/packages.adb" > /etc/apk/repositories.d/nfqws2-keenetic.list
    ```
-   Репозиторий универсальный, поддерживаемые архитектуры: `mipsel`, `mips`, `mips64`, `aarch64`, `armv7`, `x86`, `x86_64`, `lexra`.
+   Репозиторий универсальный, поддерживаемые архитектуры: `mipsel`, `mips`, `mips64`, `aarch64`, `armv7`, `x86`, `x86_64`.
    Для добавления поддержки новых устройств, [создайте Feature Request](https://github.com/nfqws/nfqws2-keenetic/issues/new?template=feature_request.md&title=%5BFeature+request%5D+)
 
 4. Установите пакет

@@ -2,8 +2,6 @@ name: Build and publish release
 
 on:
   workflow_dispatch:
-    branches:
-      - master
 
 permissions:
   contents: write
@@ -15,7 +13,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test-packaging:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Test packaging
+      run: bash tests/test-packaging.sh
+
+  build-nfqws2:
+    needs: [test-packaging]
+    uses: ./.github/workflows/build-nfqws2.yml
+
   build-openwrt:
+    needs: [build-nfqws2]
     runs-on: ubuntu-22.04
 
     container:
@@ -26,11 +40,12 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-#    - name: Install upx
-#      uses: crazy-max/ghaction-upx@v3
-#      with:
-#        install-only: true
-#        version: v5.1.0
+    - name: Download patched binaries
+      uses: actions/download-artifact@v4
+      with:
+        pattern: nfqws2-*
+        path: out/nfqws2
+        merge-multiple: true
 
     - name: Bump version file
       uses: francktrouillez/auto-bump-version-file@v1
@@ -82,17 +97,19 @@ jobs:
         echo '```' >> $GITHUB_STEP_SUMMARY
 
   build-entware:
+    needs: [build-nfqws2]
     runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
-#    - name: Install upx
-#      uses: crazy-max/ghaction-upx@v3
-#      with:
-#        install-only: true
-#        version: v5.1.0
+    - name: Download patched binaries
+      uses: actions/download-artifact@v4
+      with:
+        pattern: nfqws2-*
+        path: out/nfqws2
+        merge-multiple: true
 
     - name: Bump version file
       uses: francktrouillez/auto-bump-version-file@v1
@@ -132,6 +149,7 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         path: out
+        pattern: '@(openwrt|entware)'
         merge-multiple: true
 
     - name: Display artifacts
@@ -190,6 +208,7 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         path: out
+        pattern: '@(openwrt|entware)'
 
     - name: Display artifacts
       run: ls -R ./out
