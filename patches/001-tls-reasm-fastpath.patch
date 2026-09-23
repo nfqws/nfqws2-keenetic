@@ -1,27 +1,70 @@
-From d988e5407fbaf93c33ed662e59493b4127202626 Mon Sep 17 00:00:00 2001
-From: Alexander Markin <sashamarkin@yandex.ru>
-Date: Tue, 25 Aug 2026 14:28:33 +0300
-Subject: [PATCH 1/2] nfq2: fix TLS reasm desync on hardware fastpath routers
-
----
- nfq2/desync.c       | 145 ++++++++++++++++++++++++++++++++++++++++----
- nfq2/packet_queue.c |   3 +-
- nfq2/packet_queue.h |   1 +
- 3 files changed, 135 insertions(+), 14 deletions(-)
-
+diff --git a/docs/manual.en.md b/docs/manual.en.md
+index 609bed02dfa271c5fd747b43c82be37b87fcf954..fe9b39cd7971bd9d4b249c9ce86069cfa6035caa 100644
+--- a/docs/manual.en.md
++++ b/docs/manual.en.md
+@@ -654,6 +654,7 @@ General parameters for all versions - nfqws2, dvtws2, winws2.
+  --server=[0|1]                                         ; server mode. modifies various aspects of direction selection and source/destination ip/port for handling listeners
+  --ipcache-lifetime=<int>                               ; IP cache entry lifetime in seconds. 0 - unlimited.
+  --ipcache-hostname=[0|1]                               ; 1 or no argument enables hostname caching for use in zero-phase strategies
++ --fastpath-workaround=0|1|auto                         ; hardware fastpath workaround for TLS reassembly: 0 - disabled (default), 1 - always enabled, auto - enabled globally after two retransmissions without a successful reassembly between them
+  --reasm-disable=[type[,type]]                          ; disable fragment reassembly for a list of payloads: tls_client_hello quic_initial. without arguments - disable reasm for everything.
+ 
+ DESYNC ENGINE INIT:
+@@ -1514,6 +1515,12 @@ Currently, two such payloads are supported: `tls_client_hello` and `quic_initial
+ 
+ For `tls_client_hello`, standard payload assembly of sequential TCP segments is performed, merging them into a single `reasm_data` block.
+ 
++On some routers with hardware fastpath (a known case is the Mediatek MT7621 in the Keenetic KN-1011), a DROP verdict for an incomplete TLS reassembly may switch the flow to the hardware path. Subsequent segments then bypass NFQUEUE, so reassembly never completes. `--fastpath-workaround=1` replaces every held segment of an incomplete TLS reassembly with a payload-less TCP ACK. This packet occupies no TCP sequence space and exposes no ClientHello data, while the original segment remains queued for replay after reassembly completes.
++
++The `auto` mode starts with the normal DROP behavior and enables the workaround globally after two retransmissions during incomplete reassembly with no successful reassembly between them. A successful reassembly resets the counter until the threshold is reached; after that, the workaround remains enabled until the process restarts. The default mode is `0`. The workaround is unnecessary on platforms without this problem.
++
++On a retransmission during incomplete reassembly, modes `1` and `auto` cancel reassembly without sending the queued segments and process the current segment on its own. If the SNI was present only in segments that bypassed NFQUEUE, that connection cannot be desynchronized.
++
+ For `quic_initial`, individual packets are accumulated in an internal buffer, after which they are decrypted, merged, and defragmented. This handles payload parts scattered across packets and different offsets (a technique used by Chrome to prevent others from oversimplifying their algorithms, ensuring they follow standards and can correctly reassemble payloads from parts).
+ 
+ Until assembly is finalized, packets are accumulated in the internal buffer without calling Lua. Once finalized, the individual parts are replayed ([replay](#handling-multi-packet-payloads)). The Lua instances receive a dissection of each delayed packet, but with the fields `desync.replay=true`, `desync.replay_piece`, `desync.replay_count`, and `desync.replay_piece_last` set.
+diff --git a/docs/manual.md b/docs/manual.md
+index 64dd275626403b3b2bdb926e94329fb7e3c2f96c..6cff6f0fdc712d146722a624395138108bfae735 100644
+--- a/docs/manual.md
++++ b/docs/manual.md
+@@ -714,6 +714,7 @@ nfqws2 использует стандартный парсер getopt_long_only
+  --server=[0|1]                                         ; серверный режим. для обслуживания listener-ов меняются многие аспекты выбора направления и ip/port источника/приемника
+  --ipcache-lifetime=<int>                               ; время жизни записей кэша IP в секундах. 0 - без ограничений.
+  --ipcache-hostname=[0|1]                               ; 1 или отсутствие аргумента включают кэширование имен хостов для применения в стратегиях нулевой фазы
++ --fastpath-workaround=0|1|auto                         ; обход аппаратного fastpath при TLS reassembly: 0 - выключен (по умолчанию), 1 - всегда включен, auto - включается глобально после двух ретрансмиссий без успешной сборки между ними
+  --reasm-disable=[type[,type]]                          ; отключить сборку фрагментов для списка пейлоадов : tls_client_hello quic_initial . без аргумента - отключить reasm для всего.
+ 
+ DESYNC ENGINE INIT:
+@@ -1654,6 +1655,12 @@ ipv6 extension headers и tcp options представляются в форме
+ 
+ Для tls_client_hello производится обычная сборка пейлоадов последовательных tcp сегментов и объединение их в единый блок reasm_data.
+ 
++На некоторых роутерах с аппаратным fastpath (известный случай - Mediatek MT7621 в Keenetic KN-1011) вердикт DROP для незавершенной TLS сборки может переключить поток на аппаратный путь. Следующие сегменты тогда обходят NFQUEUE, и сборка не завершается. Параметр `--fastpath-workaround=1` заменяет каждый задерживаемый сегмент незавершенной TLS сборки на TCP ACK без пейлоада. Такой пакет не занимает TCP sequence space и не раскрывает содержимое ClientHello, а исходный сегмент остается в очереди для последующего replay после завершения сборки.
++
++Режим `auto` начинает работу с обычного DROP и глобально включает обход после двух ретрансмиссий при незавершенной сборке, если между ними не было успешной сборки. До достижения порога успешная сборка сбрасывает счетчик; после достижения обход остается включенным до перезапуска процесса. По умолчанию используется режим `0`. На платформах без этой проблемы обход не нужен.
++
++При ретрансмиссии во время незавершенной сборки режимы `1` и `auto` сбрасывают reasm без отправки накопленных сегментов и обрабатывают текущий сегмент отдельно. Если SNI находился только в сегментах, обошедших NFQUEUE, десинхронизация этого соединения невозможна.
++
+ Для quic_initial отдельные пакеты накапливаются во внутреннем буфере, после чего происходит их дешифровка, объединение и дефрагментация разбросанных по пакетам и разным смещениям частей пейлоада (так делает chrome, чтобы заставить всех не упрощать свои алгоритмы, следовать стандартам и уметь корректно собирать пейлоад по частям).
+ 
+ Пока сборка не финализирована, выполняется накопление пакетов во внутреннем буфере без вызовов Lua. Как только она финализирована, происходит перепроигрывание отдельных частей ([replay](#особенности-приема-многопакетных-пейлоадов)). В Lua инстансы приходит диссект каждого задержанного пакета, но при этом устанавливаются поля desync.replay=true, desync.replay_piece, desync.replay_count и desync.replay_piece_last.
 diff --git a/nfq2/desync.c b/nfq2/desync.c
-index 10deecde..6851d2ec 100644
+index 10deecde295173b38cbe2885b1068389be368a8d..4916f7b16ecde5955d5c89f4e063be2a757f276b 100644
 --- a/nfq2/desync.c
 +++ b/nfq2/desync.c
-@@ -631,12 +631,63 @@ static void reasm_client_cancel(t_ctrack *ctrack)
+@@ -17,6 +17,7 @@
+ 
+ #define TCP_MAX_REASM 16384
+ #define UDP_MAX_REASM 16384
++#define FASTPATH_RETRANS_THRESHOLD 2
+ 
+ typedef	struct
+ {
+@@ -631,12 +632,57 @@ static void reasm_client_cancel(t_ctrack *ctrack)
  {
  	reasm_client_stop(ctrack, "reassemble session cancelled\n");
  }
-+// cancel reasm and DISCARD the delayed queue without sending it.
-+// used when the hardware fastpath steals further fragments: the queued originals
-+// must not leak out unmodified (the DPI would see the real SNI). the client is
-+// retransmitting the held data anyway and the retransmission is processed through
-+// the normal desync path instead.
++// discard delayed originals when falling back to a retransmitted fragment
 +static void reasm_client_cancel_discard(t_ctrack *ctrack)
 +{
 +	if (ctrack)
@@ -29,7 +72,6 @@ index 10deecde..6851d2ec 100644
 +		ReasmClear(&ctrack->reasm_client);
 +		ctrack->reasm_client_payload = L7P_UNKNOWN;
 +		rawpacket_queue_destroy(&ctrack->delayed);
-+		rawpacket_queue_init(&ctrack->delayed, RAW_PACKET_QUEUE_DELAYED_MAX);
 +		DLOG("reassemble session cancelled, delayed packets discarded\n");
 +	}
 +}
@@ -39,16 +81,15 @@ index 10deecde..6851d2ec 100644
  }
  
  
-+// hardware fastpath workaround helper: build payload-less TCP ACK from the dissected packet.
-+// preserves L3/L4 headers and TCP options, removes payload, fixes lengths and checksums.
-+// the ACK does not occupy sequence space and reveals no payload bytes.
++// A payload-less ACK occupies no sequence space and reveals no payload.
 +static bool make_tcp_ack_only(const struct dissect *dis, uint8_t *mod_pkt, size_t *len_mod_pkt)
 +{
 +	if (!dis || !dis->tcp || (!dis->ip && !dis->ip6)) return false;
 +
 +	size_t len = dis->len_l3 + dis->len_l4; // all L3 headers (incl. ip6 ext) + TCP header with options
 +	if (*len_mod_pkt < len) return false;
-+	memcpy(mod_pkt, dis->data_pkt, len);
++	// dvtws2 uses the same input and output buffer
++	memmove(mod_pkt, dis->data_pkt, len);
 +
 +	struct tcphdr *tcp = (struct tcphdr *)(mod_pkt + dis->len_l3);
 +	tcp->th_flags &= ~TH_PUSH; // PSH without payload is meaningless
@@ -77,55 +118,77 @@ index 10deecde..6851d2ec 100644
  static uint8_t ct_new_postnat_fix(const t_ctrack *ctrack, const struct dissect *dis, uint8_t *mod_pkt, size_t *len_mod_pkt)
  {
  #ifdef __linux__
-@@ -1619,7 +1670,26 @@ static uint8_t dpi_desync_tcp_packet_play(
+@@ -788,6 +834,17 @@ static bool ipcache_get_hostname(const struct in_addr *a4, const struct in6_addr
+ 		*hostname = 0;
+ 	return *hostname;
+ }
++// fastpath belongs to the local datapath, so autodetection is process-wide
++static bool fastpath_detected(void)
++{
++	return params.fastpath_retrans_count >= FASTPATH_RETRANS_THRESHOLD;
++}
++static void fastpath_update(void)
++{
++	if (fastpath_detected()) return;
++	params.fastpath_retrans_count++;
++	DLOG("updated fastpath counter %u/%u\n", params.fastpath_retrans_count, FASTPATH_RETRANS_THRESHOLD);
++}
+ static void ipcache_update_ttl(t_ctrack *ctrack, const struct in_addr *a4, const struct in6_addr *a6, const char *iface)
+ {
+ 	// no need to cache ttl in server mode because first packet is incoming
+@@ -1619,6 +1676,21 @@ static uint8_t dpi_desync_tcp_packet_play(
  
  				if (!ReasmIsEmpty(&ps.ctrack->reasm_client))
  				{
--					if (rawpacket_queue(&ps.ctrack->delayed, &ps.dst, fwmark, desync_fwmark, ifin, ifout, dis->data_pkt, dis->len_pkt, dis->len_payload, &ps.ctrack->pos, false))
-+					// hardware fastpath fallback: a retransmission of already buffered data means
-+					// the remaining reasm fragments are not reaching NFQUEUE (FASTNAT/RTCACHE
-+					// steals them; the dup-ACK storm proves the fastpath itself already delivered
-+					// them to the server out of order). discard the reasm and the queued originals
-+					// WITHOUT sending them - they must not leak unmodified, the DPI would see the
-+					// real SNI. the retransmitted packet is processed through the normal desync
-+					// path with regular single packet semantics: split positions inside the first
-+					// fragment still resolve (SNI is almost always there). flows with SNI in the
-+					// stolen fragments can not be desynced - those bytes never reach NFQUEUE.
-+					if (is_retransmission(&ps.ctrack->pos.client))
++					// Treat retransmission during incomplete reasm as a fastpath bypass.
++					// Discard queued originals to avoid exposing SNI and retry this fragment normally.
++					if (params.fastpath_workaround != FASTPATH_WORKAROUND_OFF &&
++						is_retransmission(&ps.ctrack->pos.client))
 +					{
++						if (params.fastpath_workaround == FASTPATH_WORKAROUND_AUTO)
++							fastpath_update();
 +						DLOG("retransmission while reasm is incomplete (fastpath steals further fragments). discarding reasm, falling back to single packet desync\n");
 +						reasm_client_cancel_discard(ps.ctrack);
++						rdata_payload = dis->data_payload;
++						rlen_payload = dis->len_payload;
++						ps.bHaveHost = TLSHelloExtractHost(rdata_payload, rlen_payload, ps.host, sizeof(ps.host), true);
 +						goto rediscover;
 +					}
 +
-+					bool is_first = rawpacket_queue_empty(&ps.ctrack->delayed);
-+
-+					struct rawpacket *rp = rawpacket_queue(&ps.ctrack->delayed, &ps.dst, fwmark, desync_fwmark, ifin, ifout, dis->data_pkt, dis->len_pkt, dis->len_payload, &ps.ctrack->pos, false);
-+					if (rp)
+ 					if (rawpacket_queue(&ps.ctrack->delayed, &ps.dst, fwmark, desync_fwmark, ifin, ifout, dis->data_pkt, dis->len_pkt, dis->len_payload, &ps.ctrack->pos, false))
  					{
  						DLOG("DELAY desync until reasm is complete (#%u)\n", rawpacket_queue_count(&ps.ctrack->delayed));
+@@ -1628,13 +1700,37 @@ static uint8_t dpi_desync_tcp_packet_play(
+ 						// likely exceeded packet limit or unlikely out of memory
+ 						DLOG_ERR("rawpacket_queue failed !\n");
+ 						reasm_client_cancel(ps.ctrack);
++						rdata_payload = dis->data_payload;
++						rlen_payload = dis->len_payload;
+ 						ps.l7payload = L7P_UNKNOWN; // middle packet may be not L7P_TLS_CLIENT_HELLO
+ 						goto rediscover;
  					}
-@@ -1635,6 +1705,27 @@ static uint8_t dpi_desync_tcp_packet_play(
+ 					if (ReasmIsFull(&ps.ctrack->reasm_client))
  					{
++						if (params.fastpath_workaround == FASTPATH_WORKAROUND_AUTO && !fastpath_detected())
++							params.fastpath_retrans_count = 0;
  						replay_queue(&ps.ctrack->delayed);
  						reasm_client_fin(ps.ctrack);
 +						return VERDICT_DROP;
 +					}
-+					// Workaround for hardware fastpath platforms (Mediatek MT7621, Keenetic KN-1011):
-+					// DROP of the first fragment triggers RTCACHE in conntrack, after which
-+					// subsequent fragments bypass NFQUEUE entirely via hardware shortcut.
-+					// Reasm never completes. Fix: replace the first fragment with a payload-less
-+					// TCP ACK (VERDICT_MODIFY keeps NF_ACCEPT semantics so the flow stays on the
-+					// slow path). No ClientHello bytes leak to the server or DPI and no TCP
-+					// sequence space is occupied. The full desynced payload is delivered by the
-+					// strategy during replay. The original packet stays in the delayed queue for
-+					// logical replay; only its resend is suppressed.
-+					if (is_first)
++					// On affected hardware DROP activates RTCACHE and later fragments bypass NFQUEUE.
++					// ACK-only placeholders keep the flow on the slow path until replay.
++					if (params.fastpath_workaround == FASTPATH_WORKAROUND_ON ||
++						(params.fastpath_workaround == FASTPATH_WORKAROUND_AUTO && fastpath_detected()))
 +					{
-+						rp->suppress_replay_send = true;
++						// control flags are unsafe after removing the payload or before replay
++						if (dis->tcp->th_flags & (TH_FIN | TH_RST | TH_URG))
++						{
++							DLOG("not replacing incomplete reasm fragment with ACK-only because TCP control flags are set\n");
++							return VERDICT_DROP;
++						}
 +						if (make_tcp_ack_only(dis, mod_pkt, len_mod_pkt))
 +						{
-+							DLOG("replacing first reasm fragment with ACK-only packet (hardware fastpath workaround)\n");
++							DLOG("replacing incomplete reasm fragment with ACK-only packet (hardware fastpath workaround)\n");
 +							return VERDICT_MODIFY | VERDICT_NOCSUM;
 +						}
 +						DLOG_ERR("failed to build ACK-only reasm placeholder. dropping\n");
@@ -133,232 +196,95 @@ index 10deecde..6851d2ec 100644
  					}
  					return VERDICT_DROP;
  				}
-@@ -2265,19 +2356,47 @@ static bool replay_queue(struct rawpacket_queue *q)
- 		DLOG("REPLAYING delayed packet #%u offset %zu\n", i+1, offset);
- 		modlen = sizeof(mod);
- 		uint8_t verdict = dpi_desync_packet_play(i, count, offset, rp->fwmark_orig, rp->ifin, rp->ifout, rp->tpos_present ? &rp->tpos : NULL, rp->packet, rp->len, mod, &modlen);
--		switch (verdict & VERDICT_MASK)
-+		if (rp->suppress_replay_send)
-+		{
-+			// fastpath workaround: the packet itself was replaced in-flight with an ACK-only
-+			// placeholder (VERDICT_MODIFY), so its payload was not delivered by the kernel.
-+			// the play call above is still required: lua strategies act on the first replay
-+			// piece and send the whole reassembled payload themselves (rawsend side effects),
-+			// and replay state (replay_drop, replay_piece_last) must be maintained.
-+			// suppress the queued resend only on DROP verdict (the strategy has sent the data
-+			// itself). on PASS/MODIFY nothing has delivered the payload yet - resend it,
-+			// otherwise the server never receives those bytes and the connection stalls.
-+			switch (verdict & VERDICT_MASK)
-+			{
-+			case VERDICT_MODIFY:
-+				DLOG("SENDING delayed packet #%u modified (ACK-only placeholder was sent in-flight)\n", i+1);
-+				b &= rawsend((struct sockaddr*)&rp->dst,rp->fwmark,rp->ifout,mod,modlen);
-+				break;
-+			case VERDICT_PASS:
-+				DLOG("SENDING delayed packet #%u unmodified (ACK-only placeholder was sent in-flight)\n", i+1);
-+				b &= rawsend_rp(rp);
-+				break;
-+			case VERDICT_DROP:
-+				DLOG("delayed packet #%u replaced by ACK-only placeholder, suppressing queued replay\n", i+1);
-+				break;
-+			}
-+		}
-+		else
+diff --git a/nfq2/nfqws.c b/nfq2/nfqws.c
+index ae4bef90d348640b6ccc5b47a50aa3a4d73ba65d..b833fa67aca2efb422aafe0491cedcc8c1a2a451 100644
+--- a/nfq2/nfqws.c
++++ b/nfq2/nfqws.c
+@@ -319,10 +319,8 @@ static int nfq_cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_da
+ 	{
+ 		len = ilen;
+ 		modlen = RECONSTRUCT_MAX_SIZE;
+-		// there's no space to grow packet in recv blob from nfqueue. it can contain multiple packets with no extra buffer length for modifications.
+-		// to support increased sizes use separate mod buffer
+-		// this is not a problem because only LUA code can trigger VERDICT_MODIFY (and postnat workaround too, once a connection if first packet is dropped)
+-		// in case of VERIDCT_MODIFY packet is always reconstructed from dissect, so no difference where to save the data => no performance loss
++		// nfqueue's receive blob has no room to grow packets, so use a separate buffer.
++		// VERDICT_MODIFY producers build the output from dissect, making this safe.
+ 		uint8_t verdict = processPacketData(&mark, ifr_in.ifr_name, ifr_out.ifr_name, data, len, cbdata->mod, &modlen);
+ 		switch (verdict & VERDICT_MASK)
  		{
--		case VERDICT_MODIFY:
--			DLOG("SENDING delayed packet #%u modified\n", i+1);
--			b &= rawsend((struct sockaddr*)&rp->dst,rp->fwmark,rp->ifout,mod,modlen);
--			break;
--		case VERDICT_PASS:
--			DLOG("SENDING delayed packet #%u unmodified\n", i+1);
--			b &= rawsend_rp(rp);
--			break;
--		case VERDICT_DROP:
--			DLOG("DROPPING delayed packet #%u\n", i+1);
--			break;
-+			switch (verdict & VERDICT_MASK)
+@@ -1841,6 +1839,7 @@ static void exithelp(void)
+ 		" --server=[0|1]\t\t\t\t\t\t; change multiple aspects of src/dst ip/port handling for incoming connections\n"
+ 		" --ipcache-lifetime=<int>\t\t\t\t; time in seconds to keep cached hop count and domain name (default %u). 0 = no expiration\n"
+ 		" --ipcache-hostname=[0|1]\t\t\t\t; 1 or no argument enables ip->hostname caching\n"
++		" --fastpath-workaround=0|1|auto\t\t\t; hardware fastpath workaround for TLS reassembly (default : 0)\n"
+ 		" --reasm-disable=[type[,type]]\t\t\t\t; disable reasm for these L7 payloads : tls_client_hello quic_initial . if no argument - disable all reasm.\n"
+ #ifdef __CYGWIN__
+ 		"\nWINDIVERT FILTER:\n"
+@@ -2004,6 +2003,7 @@ enum opt_indices {
+ 	IDX_SERVER,
+ 	IDX_IPCACHE_LIFETIME,
+ 	IDX_IPCACHE_HOSTNAME,
++	IDX_FASTPATH_WORKAROUND,
+ 	IDX_REASM_DISABLE,
+ #ifdef __linux__
+ 	IDX_FWMARK,
+@@ -2115,6 +2115,7 @@ static const struct option long_options[] = {
+ 	[IDX_SERVER] = {"server", optional_argument, 0, 0},
+ 	[IDX_IPCACHE_LIFETIME] = {"ipcache-lifetime", required_argument, 0, 0},
+ 	[IDX_IPCACHE_HOSTNAME] = {"ipcache-hostname", optional_argument, 0, 0},
++	[IDX_FASTPATH_WORKAROUND] = {"fastpath-workaround", required_argument, 0, 0},
+ 	[IDX_REASM_DISABLE] = {"reasm-disable", optional_argument, 0, 0},
+ #ifdef __linux__
+ 	[IDX_FWMARK] = {"fwmark", required_argument, 0, 0},
+@@ -2500,6 +2501,19 @@ int main(int argc, char **argv)
+ 		case IDX_IPCACHE_HOSTNAME:
+ 			params.cache_hostname = !optarg || atoi(optarg);
+ 			break;
++		case IDX_FASTPATH_WORKAROUND:
++			if (!strcmp(optarg, "0"))
++				params.fastpath_workaround = FASTPATH_WORKAROUND_OFF;
++			else if (!strcmp(optarg, "1"))
++				params.fastpath_workaround = FASTPATH_WORKAROUND_ON;
++			else if (!strcmp(optarg, "auto"))
++				params.fastpath_workaround = FASTPATH_WORKAROUND_AUTO;
++			else
 +			{
-+			case VERDICT_MODIFY:
-+				DLOG("SENDING delayed packet #%u modified\n", i+1);
-+				b &= rawsend((struct sockaddr*)&rp->dst,rp->fwmark,rp->ifout,mod,modlen);
-+				break;
-+			case VERDICT_PASS:
-+				DLOG("SENDING delayed packet #%u unmodified\n", i+1);
-+				b &= rawsend_rp(rp);
-+				break;
-+			case VERDICT_DROP:
-+				DLOG("DROPPING delayed packet #%u\n", i+1);
-+				break;
++				DLOG_ERR("invalid fastpath-workaround value : %s\n", optarg);
++				exit_clean(1);
 +			}
- 		}
- 
- 		if (!bseq)
-diff --git a/nfq2/packet_queue.c b/nfq2/packet_queue.c
-index 20fb69ca..be16698c 100644
---- a/nfq2/packet_queue.c
-+++ b/nfq2/packet_queue.c
-@@ -72,7 +72,8 @@ struct rawpacket *rawpacket_queue(
- 	else
- 		rp->tpos_present = false;
- 	rp->server_side = server_side;
--	
-+	rp->suppress_replay_send = false;
-+
- 	TAILQ_INSERT_TAIL(&q->q, rp, next);
- 	
- 	return rp;
-diff --git a/nfq2/packet_queue.h b/nfq2/packet_queue.h
-index cbf6e851..7e70bdc4 100644
---- a/nfq2/packet_queue.h
-+++ b/nfq2/packet_queue.h
-@@ -19,6 +19,7 @@ struct rawpacket
- 	t_ctrack_positions tpos;
- 	bool tpos_present;
- 	bool server_side;		// true = reasm of packets from the server side
-+	bool suppress_replay_send;	// fastpath workaround: first reasm fragment replaced in-flight with ACK-only, never resend it on replay
- 	TAILQ_ENTRY(rawpacket) next;
- };
- TAILQ_HEAD(rawpacket_tailhead, rawpacket);
-
-From a035d89b18221d376382728884a80200fce09c1b Mon Sep 17 00:00:00 2001
-From: Alexander Markin <sashamarkin@yandex.ru>
-Date: Tue, 25 Aug 2026 14:57:46 +0300
-Subject: [PATCH 2/2] nfq2: autodetect hw fastpath for TLS reasm
-
----
- nfq2/desync.c | 48 ++++++++++++++++++++++++++++++++++++++++--------
- nfq2/pools.c  |  5 +++--
- nfq2/pools.h  |  1 +
- 3 files changed, 44 insertions(+), 10 deletions(-)
-
-diff --git a/nfq2/desync.c b/nfq2/desync.c
-index 6851d2ec..49bac7b6 100644
---- a/nfq2/desync.c
-+++ b/nfq2/desync.c
-@@ -17,6 +17,7 @@
- 
- #define TCP_MAX_REASM 16384
- #define UDP_MAX_REASM 16384
-+#define FASTPATH_RETRANS_THRESHOLD 2
- 
- typedef	struct
- {
-@@ -837,6 +838,27 @@ static bool ipcache_get_hostname(const struct in_addr *a4, const struct in6_addr
- 		*hostname = 0;
- 	return *hostname;
- }
-+// hardware fastpath autodetect. retransmissions during incomplete reasm are counted
-+// per server IP (ipcache survives connections, unlike t_ctrack). when the counter
-+// reaches FASTPATH_RETRANS_THRESHOLD the platform is considered hardware fastpath
-+// and the first reasm fragment of subsequent connections is replaced with an
-+// ACK-only packet instead of being dropped (see dpi_desync_tcp_packet_play).
-+static void ipcache_update_fastpath(const struct in_addr *a4, const struct in6_addr *a6)
-+{
-+	ip_cache_item *ipc = ipcacheTouch(&params.ipcache, a4, a6, NULL);
-+	if (!ipc)
-+	{
-+		DLOG_ERR("ipcache_update_fastpath: out of memory\n");
-+		return;
-+	}
-+	if (ipc->fastpath_retrans_count < 255) ipc->fastpath_retrans_count++;
-+	DLOG("updated fastpath counter %u/%u\n", ipc->fastpath_retrans_count, FASTPATH_RETRANS_THRESHOLD);
-+}
-+static bool ipcache_get_fastpath(const struct in_addr *a4, const struct in6_addr *a6)
-+{
-+	ip_cache_item *ipc = ipcacheFind(&params.ipcache, a4, a6, NULL);
-+	return ipc && ipc->fastpath_retrans_count >= FASTPATH_RETRANS_THRESHOLD;
-+}
- static void ipcache_update_ttl(t_ctrack *ctrack, const struct in_addr *a4, const struct in6_addr *a6, const char *iface)
- {
- 	// no need to cache ttl in server mode because first packet is incoming
-@@ -1668,7 +1690,7 @@ static uint8_t dpi_desync_tcp_packet_play(
- 
- 				if (!ReasmIsEmpty(&ps.ctrack->reasm_client))
- 				{
--					// hardware fastpath fallback: a retransmission of already buffered data means
-+					// hardware fastpath fallback and autodetect: a retransmission of already buffered data means
- 					// the remaining reasm fragments are not reaching NFQUEUE (FASTNAT/RTCACHE
- 					// steals them; the dup-ACK storm proves the fastpath itself already delivered
- 					// them to the server out of order). discard the reasm and the queued originals
-@@ -1677,8 +1699,14 @@ static uint8_t dpi_desync_tcp_packet_play(
- 					// path with regular single packet semantics: split positions inside the first
- 					// fragment still resolve (SNI is almost always there). flows with SNI in the
- 					// stolen fragments can not be desynced - those bytes never reach NFQUEUE.
-+					// the event is also counted per server IP in ipcache: after FASTPATH_RETRANS_THRESHOLD
-+					// events the platform is considered fastpath and further connections take the
-+					// ACK-only replacement path below from the first fragment.
- 					if (is_retransmission(&ps.ctrack->pos.client))
- 					{
-+						ipcache_update_fastpath(ps.sdip4, ps.sdip6);
- 						DLOG("retransmission while reasm is incomplete (fastpath steals further fragments). discarding reasm, falling back to single packet desync\n");
- 						reasm_client_cancel_discard(ps.ctrack);
-+						rdata_payload = dis->data_payload;
-+						rlen_payload = dis->len_payload;
- 						goto rediscover;
-@@ -1708,13 +1736,17 @@ static uint8_t dpi_desync_tcp_packet_play(
- 					// Workaround for hardware fastpath platforms (Mediatek MT7621, Keenetic KN-1011):
- 					// DROP of the first fragment triggers RTCACHE in conntrack, after which
- 					// subsequent fragments bypass NFQUEUE entirely via hardware shortcut.
--					// Reasm never completes. Fix: replace the first fragment with a payload-less
--					// TCP ACK (VERDICT_MODIFY keeps NF_ACCEPT semantics so the flow stays on the
--					// slow path). No ClientHello bytes leak to the server or DPI and no TCP
--					// sequence space is occupied. The full desynced payload is delivered by the
--					// strategy during replay. The original packet stays in the delayed queue for
--					// logical replay; only its resend is suppressed.
--					if (is_first)
-+					// Reasm never completes. Applied only after the platform is detected as
-+					// fastpath (ipcache retransmission counter reached the threshold); until
-+					// then the first fragment is dropped as usual (upstream behaviour) and the
-+					// detection above collects statistics. Fix: replace the first fragment
-+					// with a payload-less TCP ACK (VERDICT_MODIFY keeps NF_ACCEPT semantics
-+					// so the flow stays on the slow path). No ClientHello bytes leak to the
-+					// server or DPI and no TCP sequence space is occupied. The full desynced
-+					// payload is delivered by the strategy during replay. The original packet
-+					// stays in the delayed queue for logical replay; only its resend is
-+					// suppressed.
-+					if (is_first && ipcache_get_fastpath(ps.sdip4, ps.sdip6))
- 					{
- 						rp->suppress_replay_send = true;
- 						if (make_tcp_ack_only(dis, mod_pkt, len_mod_pkt))
-diff --git a/nfq2/pools.c b/nfq2/pools.c
-index 25ab761f..1d012a77 100644
---- a/nfq2/pools.c
-+++ b/nfq2/pools.c
-@@ -954,6 +954,7 @@ static void ipcache_item_init(ip_cache_item *item)
- 	item->hostname = NULL;
- 	item->hostname_is_ip = false;
- 	item->ttl = 0;
-+	item->fastpath_retrans_count = 0;
- }
- static void ipcache_item_destroy(ip_cache_item *item)
- {
-@@ -1014,7 +1015,7 @@ static void ipcache4Print(ip_cache4 *ipcache)
- 	{
- 		*s_ip=0;
- 		inet_ntop(AF_INET, &ipc->key.addr, s_ip, sizeof(s_ip));
--		printf("%s iface=%s : ttl %u hostname=%s hostname_is_ip=%u now=last+%llu\n", s_ip, ipc->key.iface, ipc->data.ttl, ipc->data.hostname ? ipc->data.hostname : "", ipc->data.hostname_is_ip, (unsigned long long)(now-ipc->data.last));
-+		printf("%s iface=%s : ttl %u hostname=%s hostname_is_ip=%u fastpath_retrans=%u now=last+%llu\n", s_ip, ipc->key.iface, ipc->data.ttl, ipc->data.hostname ? ipc->data.hostname : "", ipc->data.hostname_is_ip, ipc->data.fastpath_retrans_count, (unsigned long long)(now-ipc->data.last));
++			break;
+ 		case IDX_PAYLOAD_DISABLE:
+ 			if (optarg)
+ 			{
+@@ -3376,6 +3390,9 @@ fmark_err:
+ 		ConntrackPoolInit(&params.conntrack, 10, params.ctrack_t_syn, params.ctrack_t_est, params.ctrack_t_fin, params.ctrack_t_udp);
  	}
- }
+ 	DLOG("ipcache lifetime %us\n", params.ipcache_lifetime);
++	DLOG("fastpath workaround %s\n",
++		params.fastpath_workaround == FASTPATH_WORKAROUND_OFF ? "0" :
++		params.fastpath_workaround == FASTPATH_WORKAROUND_ON ? "1" : "auto");
  
-@@ -1072,7 +1073,7 @@ static void ipcache6Print(ip_cache6 *ipcache)
- 	{
- 		*s_ip=0;
- 		inet_ntop(AF_INET6, &ipc->key.addr, s_ip, sizeof(s_ip));
--		printf("%s iface=%s : ttl %u hostname=%s hostname_is_ip=%u now=last+%llu\n", s_ip, ipc->key.iface, ipc->data.ttl, ipc->data.hostname ? ipc->data.hostname : "", ipc->data.hostname_is_ip, (unsigned long long)(now-ipc->data.last));
-+		printf("%s iface=%s : ttl %u hostname=%s hostname_is_ip=%u fastpath_retrans=%u now=last+%llu\n", s_ip, ipc->key.iface, ipc->data.ttl, ipc->data.hostname ? ipc->data.hostname : "", ipc->data.hostname_is_ip, ipc->data.fastpath_retrans_count, (unsigned long long)(now-ipc->data.last));
- 	}
- }
+ #ifdef __linux__
+ 	result = nfq_main();
+diff --git a/nfq2/params.h b/nfq2/params.h
+index 309fb7580e823571f42b1e7ca0938a74ce8604c3..1892c589d4f68bc3161628d503a7867504278918 100644
+--- a/nfq2/params.h
++++ b/nfq2/params.h
+@@ -54,6 +54,7 @@ extern const char *fake_http_request_default;
+ extern const uint8_t fake_tls_clienthello_default[680];
  
-diff --git a/nfq2/pools.h b/nfq2/pools.h
-index 01798c36..faf46a79 100644
---- a/nfq2/pools.h
-+++ b/nfq2/pools.h
-@@ -273,6 +273,7 @@ typedef struct ip_cache_item
- 	char *hostname;
- 	bool hostname_is_ip;
- 	uint8_t ttl;
+ enum log_target { LOG_TARGET_CONSOLE=0, LOG_TARGET_FILE, LOG_TARGET_SYSLOG, LOG_TARGET_ANDROID };
++enum fastpath_workaround_mode { FASTPATH_WORKAROUND_OFF=0, FASTPATH_WORKAROUND_ON, FASTPATH_WORKAROUND_AUTO };
+ 
+ struct desync_profile
+ {
+@@ -187,6 +188,8 @@ struct params_s
+ 	bool filter_ssid_present;
+ #endif
+ 
++	enum fastpath_workaround_mode fastpath_workaround;
 +	uint8_t fastpath_retrans_count;
- } ip_cache_item;
- typedef struct ip_cache4
- {
+ 	bool cache_hostname;
+ 	unsigned int ipcache_lifetime;
+ 	ip_cache ipcache;

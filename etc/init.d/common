@@ -178,7 +178,13 @@ kernel_modules() {
 }
 
 _startup_args() {
-  local args="--user=$USER --qnum=$NFQUEUE_NUM $NFQWS_BASE_ARGS"
+  local fastpath_workaround=
+  case "$NFQWS_BASE_ARGS" in
+    *--fastpath-workaround=*) ;;
+    *) fastpath_workaround="--fastpath-workaround=auto" ;;
+  esac
+
+  local args="--user=$USER --qnum=$NFQUEUE_NUM $fastpath_workaround $NFQWS_BASE_ARGS"
 
   # Fix bind multiple interfaces
   local iface_count=$(echo $ISP_INTERFACE | wc -w)
