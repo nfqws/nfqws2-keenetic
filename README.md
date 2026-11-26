@@ -452,6 +452,13 @@ dig +short HTTPS example.com
 NFQWS_ARGS_CUSTOM="--filter-tcp=443 --dpi-desync=fake,split2 --hostlist=custom.list --new --filter-tcp=80 --dpi-desync=disorder2 --dpi-desync-fooling=md5sig,badseq"
 ```
 
+Профиль из `NFQWS_ARGS_CUSTOM` применяется только к портам из собственного `--filter-tcp`. Если в `TCP_PORTS` указаны другие порты (например, `2053,2083,2087,2096,8443`),
+соединение на такой порт хоста из списка профиля обработает следующий подходящий профиль, обычно основной, со своей стратегией.
+Перечисляйте в `--filter-tcp` профиля все порты, на которых нужны его хосты:
+```bash
+NFQWS_ARGS_CUSTOM="--filter-tcp=443,2053,2083,2087,2096,8443 --hostlist=custom.list --dpi-desync=fake,split2"
+```
+
 ---
 
 Нравится проект? Поддержи автора [здесь](https://yoomoney.ru/to/410019180291197) или [тут](https://pay.cloudtips.ru/p/054d0666). Купи ему немного :beers: или :coffee:!
