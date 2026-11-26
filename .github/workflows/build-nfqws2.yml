@@ -1,4 +1,4 @@
-# Linux build recipe from bol-van/zapret2 v1.0.5.2 (.github/workflows/build.yml).
+# Linux build recipe from bol-van/zapret2 v1.0.8 (.github/workflows/build.yml).
 name: Build patched nfqws2
 
 on:
@@ -40,7 +40,7 @@ jobs:
 
       - name: Verify upstream build workflow
         env:
-          EXPECTED_SHA256: 24d184d2dd11701c794fcf48136fff8ba4edaf503e5f01c4dc8ed8da51f93ada
+          EXPECTED_SHA256: c5ef9dd90b09bf7fd06eeab234a675ade76857f8dc2437066c196432784ce895
         run: |
           ACTUAL_SHA256=$(sha256sum .github/workflows/build.yml | cut -d ' ' -f 1)
           if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then

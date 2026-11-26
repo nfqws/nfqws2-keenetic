@@ -2,7 +2,7 @@
 
 `001-tls-reasm-fastpath.patch` — итоговый diff ветки
 [`Anonym-tsk/zapret2:tls-reasm-fastpath`](https://github.com/Anonym-tsk/zapret2/tree/tls-reasm-fastpath)
-на коммите `88611a550078d338a02d4dd8e49277b9fde83fff` относительно `v1.0.7`.
+на коммите `8057b8fcd7d3ea5d07b521e0ecfef521be9d9581` относительно `v1.0.8`.
 Ветка опубликована в [PR #321](https://github.com/bol-van/zapret2/pull/321).
 Она основана на [PR #303](https://github.com/bol-van/zapret2/pull/303), но содержит
 исправленную и доработанную реализацию: выключенный по умолчанию режим
@@ -14,7 +14,7 @@
 релиз zapret2 через GitHub API `releases/latest` (без draft и prerelease).
 Тег разрешается в commit один раз: все архитектуры собираются с этого SHA,
 а в `ZAPRET_GH_VER` и `ZAPRET_GH_HASH` передаются тег релиза и SHA соответственно.
-Патч проверен на `v1.0.7` (`038c97e5819df10f8e8c22a2f1fffe57f2f7379b`).
+Патч проверен на `v1.0.8` (`93fbe9af8110107f44b70dba1ee956a0902f65b6`).
 При выходе новой версии нужно проверять совместимость патча с исходниками
 и учитывать изменения upstream-рецепта сборки. Проверка SHA-256 рецепта не
 проверяет совместимость патча. Патчи применяются по имени файла с `--fuzz=0`;
@@ -23,7 +23,7 @@
 ## Сборка
 
 Release workflow сначала собирает семь Linux-архитектур по рецепту
-[upstream](https://github.com/bol-van/zapret2/blob/v1.0.7/.github/workflows/build.yml):
+[upstream](https://github.com/bol-van/zapret2/blob/v1.0.8/.github/workflows/build.yml):
 те же toolchain, зависимости, флаги, Lua/LuaJIT и UPX 4.2.4
 (без UPX для mips64). MIPS использует soft-float toolchain.
 Lua-скрипты берутся из той же ревизии и сжимаются `pigz -11`, как в embedded-релизе.

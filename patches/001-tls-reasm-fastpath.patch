@@ -1,8 +1,8 @@
 diff --git a/docs/manual.en.md b/docs/manual.en.md
-index 9a8a99862e5b5c031f186e448c25bab541beae98..ca75dbee1802af23e90e97717cca916ea09dc49a 100644
+index 773f9dc69b0ea71d4b8ed5c2b39893400fe2822e..b49d803f065f854c7004f58b1fd1090ab482c46d 100644
 --- a/docs/manual.en.md
 +++ b/docs/manual.en.md
-@@ -654,6 +654,7 @@ General parameters for all versions - nfqws2, dvtws2, winws2.
+@@ -655,6 +655,7 @@ General parameters for all versions - nfqws2, dvtws2, winws2.
   --server=[0|1]                                         ; server mode. modifies various aspects of direction selection and source/destination ip/port for handling listeners
   --ipcache-lifetime=<int>                               ; IP cache entry lifetime in seconds. 0 - unlimited.
   --ipcache-hostname=[0|1]                               ; 1 or no argument enables hostname caching for use in zero-phase strategies
@@ -10,7 +10,7 @@ index 9a8a99862e5b5c031f186e448c25bab541beae98..ca75dbee1802af23e90e97717cca916e
   --reasm-disable=[type[,type]]                          ; disable fragment reassembly for a list of payloads: tls_client_hello quic_initial. without arguments - disable reasm for everything.
  
  DESYNC ENGINE INIT:
-@@ -1518,6 +1519,12 @@ Currently, two such payloads are supported: `tls_client_hello` and `quic_initial
+@@ -1519,6 +1520,12 @@ Currently, two such payloads are supported: `tls_client_hello` and `quic_initial
  
  For `tls_client_hello`, standard payload assembly of sequential TCP segments is performed, merging them into a single `reasm_data` block.
  
@@ -24,10 +24,10 @@ index 9a8a99862e5b5c031f186e448c25bab541beae98..ca75dbee1802af23e90e97717cca916e
  
  Until assembly is finalized, packets are accumulated in the internal buffer without calling Lua. Once finalized, the individual parts are replayed ([replay](#handling-multi-packet-payloads)). The Lua instances receive a dissection of each delayed packet, but with the fields `desync.replay=true`, `desync.replay_piece`, `desync.replay_count`, and `desync.replay_piece_last` set.
 diff --git a/docs/manual.md b/docs/manual.md
-index 04d696ec1b757a85891b3f5a75c86438304b3bc6..25651bf5a165b94b03d84ceb7b93378a700eda16 100644
+index f0f21ecd4b9f5fa7039561a056cbd3e9a768fe19..f296da218515f754f5f6480adb1efd91a38082f0 100644
 --- a/docs/manual.md
 +++ b/docs/manual.md
-@@ -714,6 +714,7 @@ nfqws2 использует стандартный парсер getopt_long_only
+@@ -715,6 +715,7 @@ nfqws2 использует стандартный парсер getopt_long_only
   --server=[0|1]                                         ; серверный режим. для обслуживания listener-ов меняются многие аспекты выбора направления и ip/port источника/приемника
   --ipcache-lifetime=<int>                               ; время жизни записей кэша IP в секундах. 0 - без ограничений.
   --ipcache-hostname=[0|1]                               ; 1 или отсутствие аргумента включают кэширование имен хостов для применения в стратегиях нулевой фазы
@@ -35,7 +35,7 @@ index 04d696ec1b757a85891b3f5a75c86438304b3bc6..25651bf5a165b94b03d84ceb7b93378a
   --reasm-disable=[type[,type]]                          ; отключить сборку фрагментов для списка пейлоадов : tls_client_hello quic_initial . без аргумента - отключить reasm для всего.
  
  DESYNC ENGINE INIT:
-@@ -1658,6 +1659,12 @@ ipv6 extension headers и tcp options представляются в форме
+@@ -1659,6 +1660,12 @@ ipv6 extension headers и tcp options представляются в форме
  
  Для tls_client_hello производится обычная сборка пейлоадов последовательных tcp сегментов и объединение их в единый блок reasm_data.
  
@@ -49,7 +49,7 @@ index 04d696ec1b757a85891b3f5a75c86438304b3bc6..25651bf5a165b94b03d84ceb7b93378a
  
  Пока сборка не финализирована, выполняется накопление пакетов во внутреннем буфере без вызовов Lua. Как только она финализирована, происходит перепроигрывание отдельных частей ([replay](#особенности-приема-многопакетных-пейлоадов)). В Lua инстансы приходит диссект каждого задержанного пакета, но при этом устанавливаются поля desync.replay=true, desync.replay_piece, desync.replay_count и desync.replay_piece_last.
 diff --git a/nfq2/desync.c b/nfq2/desync.c
-index 3e89e6c886acd44fe326c6553d19ab0282f54366..6afce4db71c00b541e20b5234435b51631a1b40a 100644
+index 1eed09112b3a8c706bd34cb5cfb355076bb1da17..a14e594e4545d8da6112f1fd8e733a69dec39bf7 100644
 --- a/nfq2/desync.c
 +++ b/nfq2/desync.c
 @@ -17,6 +17,7 @@
@@ -60,7 +60,7 @@ index 3e89e6c886acd44fe326c6553d19ab0282f54366..6afce4db71c00b541e20b5234435b516
  
  typedef	struct
  {
-@@ -631,12 +632,57 @@ static void reasm_client_cancel(t_ctrack *ctrack)
+@@ -620,12 +621,57 @@ static void reasm_client_cancel(t_ctrack *ctrack)
  {
  	reasm_client_stop(ctrack, "reassemble session cancelled\n");
  }
@@ -118,7 +118,7 @@ index 3e89e6c886acd44fe326c6553d19ab0282f54366..6afce4db71c00b541e20b5234435b516
  static uint8_t ct_new_postnat_fix(const t_ctrack *ctrack, const struct dissect *dis, uint8_t *mod_pkt, size_t *len_mod_pkt)
  {
  #ifdef __linux__
-@@ -788,6 +834,17 @@ static bool ipcache_get_hostname(const struct in_addr *a4, const struct in6_addr
+@@ -777,6 +823,17 @@ static bool ipcache_get_hostname(const struct in_addr *a4, const struct in6_addr
  		*hostname = 0;
  	return *hostname;
  }
@@ -136,7 +136,7 @@ index 3e89e6c886acd44fe326c6553d19ab0282f54366..6afce4db71c00b541e20b5234435b516
  static void ipcache_update_ttl(t_ctrack *ctrack, const struct in_addr *a4, const struct in6_addr *a6, const char *iface)
  {
  	// no need to cache ttl in server mode because first packet is incoming
-@@ -1619,6 +1676,21 @@ static uint8_t dpi_desync_tcp_packet_play(
+@@ -1618,6 +1675,21 @@ static uint8_t dpi_desync_tcp_packet_play(
  
  				if (!ReasmIsEmpty(&ps.ctrack->reasm_client))
  				{
@@ -151,14 +151,14 @@ index 3e89e6c886acd44fe326c6553d19ab0282f54366..6afce4db71c00b541e20b5234435b516
 +						reasm_client_cancel_discard(ps.ctrack);
 +						rdata_payload = dis->data_payload;
 +						rlen_payload = dis->len_payload;
-+						ps.bHaveHost = TLSHelloExtractHost(rdata_payload, rlen_payload, ps.host, sizeof(ps.host), true);
++						TLSHelloExtractHost(rdata_payload, rlen_payload, ps.host, sizeof(ps.host), true);
 +						goto rediscover;
 +					}
 +
  					if (rawpacket_queue(&ps.ctrack->delayed, &ps.dst, fwmark, desync_fwmark, ifin, ifout, dis->data_pkt, dis->len_pkt, dis->len_payload, &ps.ctrack->pos, false))
  					{
  						DLOG("DELAY desync until reasm is complete (#%u)\n", rawpacket_queue_count(&ps.ctrack->delayed));
-@@ -1631,8 +1703,30 @@ static uint8_t dpi_desync_tcp_packet_play(
+@@ -1630,8 +1702,30 @@ static uint8_t dpi_desync_tcp_packet_play(
  					}
  					if (ReasmIsFull(&ps.ctrack->reasm_client))
  					{
@@ -190,7 +190,7 @@ index 3e89e6c886acd44fe326c6553d19ab0282f54366..6afce4db71c00b541e20b5234435b516
  					return VERDICT_DROP;
  				}
 diff --git a/nfq2/nfqws.c b/nfq2/nfqws.c
-index 98156787d907c8aff7d362981c6df3d8c730785c..88a5c12f3094d078e091b6c53f82bc2490e0fd30 100644
+index 08bd6fc69477cb744b644910444e2b1c3c624d9f..2f892d2aa8b76ea012b0afc4396491655f11f392 100644
 --- a/nfq2/nfqws.c
 +++ b/nfq2/nfqws.c
 @@ -319,10 +319,8 @@ static int nfq_cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg, struct nfq_da
@@ -230,7 +230,7 @@ index 98156787d907c8aff7d362981c6df3d8c730785c..88a5c12f3094d078e091b6c53f82bc24
  	[IDX_REASM_DISABLE] = {"reasm-disable", optional_argument, 0, 0},
  #ifdef __linux__
  	[IDX_FWMARK] = {"fwmark", required_argument, 0, 0},
-@@ -2503,6 +2504,19 @@ int main(int argc, char **argv)
+@@ -2506,6 +2507,19 @@ int main(int argc, char **argv)
  		case IDX_IPCACHE_HOSTNAME:
  			params.cache_hostname = !optarg || atoi(optarg);
  			break;
@@ -250,7 +250,7 @@ index 98156787d907c8aff7d362981c6df3d8c730785c..88a5c12f3094d078e091b6c53f82bc24
  		case IDX_PAYLOAD_DISABLE:
  			if (optarg)
  			{
-@@ -3390,6 +3404,9 @@ fmark_err:
+@@ -3416,6 +3430,9 @@ fmark_err:
  		ConntrackPoolInit(&params.conntrack, 10, params.ctrack_t_syn, params.ctrack_t_est, params.ctrack_t_fin, params.ctrack_t_udp);
  	}
  	DLOG("ipcache lifetime %us\n", params.ipcache_lifetime);
@@ -261,7 +261,7 @@ index 98156787d907c8aff7d362981c6df3d8c730785c..88a5c12f3094d078e091b6c53f82bc24
  #ifdef __linux__
  	result = nfq_main();
 diff --git a/nfq2/params.h b/nfq2/params.h
-index d7c3432e4d5273baffb787530c1d0c655b81b361..8cf20064392b4ae637c313b28db6d7e2db310aec 100644
+index 9193eb161a0a5046e07abc663a6e1e4f588d7146..cb3a5cba3fd4a2156af85ee05bbe53bf4f62c21a 100644
 --- a/nfq2/params.h
 +++ b/nfq2/params.h
 @@ -54,6 +54,7 @@ extern const char *fake_http_request_default;
@@ -272,7 +272,7 @@ index d7c3432e4d5273baffb787530c1d0c655b81b361..8cf20064392b4ae637c313b28db6d7e2
  
  struct desync_profile
  {
-@@ -189,6 +190,8 @@ struct params_s
+@@ -196,6 +197,8 @@ struct params_s
  	bool filter_ssid_present;
  #endif
  
